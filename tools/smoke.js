@@ -39,6 +39,18 @@ const server = http.createServer((req, res) => {
   for (const src of files) {
     await page.goto(`http://localhost:${PORT}/index.html`);
     await page.evaluate(() => localStorage.clear());
+    // BL_SEED=1: 샘플 첫 행의 수령자/주소를 블랙리스트로 미리 등록해 경고 흐름을 검사
+    if (process.env.BL_SEED && /\.xlsx$/i.test(src)) {
+      require(path.join(ROOT, "xlsx-lite.js"));
+      const b = fs.readFileSync(src);
+      const wb = await globalThis.XlsxLite.read(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+      const rows = wb.sheet(wb.names[0]);
+      const hi = rows[0].indexOf("수령자명"), ai = rows[0].indexOf("배송지주소");
+      const seed = [{ name: String(rows[1][hi]), address: String(rows[1][ai]), phone: "", memo: "테스트", addedAt: "2026-09-06" },
+                    { name: String(rows[2][hi]), address: "", phone: "", memo: "이름만", addedAt: "2026-09-06" }];
+      await page.evaluate((v) => localStorage.setItem("oh_blacklist_v1", JSON.stringify(v)), seed);
+      console.log("  블랙리스트 시드:", seed.map((x) => x.name).join(", "));
+    }
     await page.goto(`http://localhost:${PORT}/index.html`);
     await page.waitForTimeout(300);
     console.log(`\n▶ ${path.basename(src)}`);
@@ -61,6 +73,29 @@ const server = http.createServer((req, res) => {
     const dash = !(await page.locator("#view-dashboard").getAttribute("class") || "").includes("hidden");
     console.log("  대시보드 진입:", dash, "| 토스트:", (await page.textContent("#toast")).trim());
     if (!dash) { errors.push(`${path.basename(src)}: 대시보드로 넘어가지 못함`); continue; }
+    await page.waitForTimeout(400);
+    const riskModal = await page.locator(".modal-bg:not(.hidden) h2").filter({ hasText: "주문 처리 위험" }).count();
+    if (riskModal) {
+      console.log("  위험 모달:", (await page.locator(".modal-bg:not(.hidden) h2").filter({ hasText: "주문 처리 위험" }).first().textContent()).trim());
+      if (process.env.SHOTS) await page.screenshot({ path: "/tmp/shots/risk-modal.png" });
+      await page.click(".modal-bg [data-rm-close]");
+      await page.waitForTimeout(200);
+    }
+    // WORKBOOK=경로: 설정의 워크북 가져오기 경로로 블랙리스트/수수료 데이터만 들어오는지
+    if (process.env.WORKBOOK) {
+      await page.evaluate(({ name, b64 }) => {
+        const bin = atob(b64), u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        const dt = new DataTransfer(); dt.items.add(new File([u], name));
+        const inp = document.getElementById("in-workbook"); inp.files = dt.files;
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      }, { name: "workbook.xlsx", b64: fs.readFileSync(process.env.WORKBOOK).toString("base64") });
+      await page.waitForTimeout(6000);
+      console.log("  워크북 가져오기 토스트:", (await page.textContent("#toast")).trim());
+      if (await page.locator(".modal-bg:not(.hidden) [data-rm-close]").count()) await page.click(".modal-bg:not(.hidden) [data-rm-close]");
+      if (await page.locator("#modal-settings:not(.hidden)").count()) await page.click("#btn-set-close");
+      await page.waitForTimeout(200);
+    }
 
     const tabs = await page.$$eval("#tabnav .tab", (els) => els.map((e) => e.getAttribute("data-tab")));
     for (const t of tabs) {
@@ -77,6 +112,7 @@ const server = http.createServer((req, res) => {
     await page.click('#tabnav [data-tab="orders"]');
     await page.waitForTimeout(250);
     const rows = await page.locator("#sheet-table tbody tr[data-id]").count();
+    console.log("  위험 행:", await page.locator("#sheet-table tbody tr.row-danger").count(), "| 주의 행:", await page.locator("#sheet-table tbody tr.row-warn").count());
     const heads = await page.$$eval("#sheet-table thead th[data-k]", (els) => els.map((e) => e.getAttribute("data-k")));
     console.log("  시트 행:", rows, "| 열:", heads.join(","));
 

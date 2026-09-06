@@ -19,7 +19,8 @@
     deleted:"oh_deleted_v1",   // 삭제한 행 복구 스택
     cloud:  "oh_cloud_v1",    // 구글시트 연동 설정(선택)
     ops:    "oh_ops_v1",      // 라인업/매입처/일지/계정/카드 등 엑셀 보조 탭
-    sourcingMap: "oh_sourcing_map_v1"  // 소싱 매핑표 (새로고침 유지)
+    sourcingMap: "oh_sourcing_map_v1",  // 소싱 매핑표 (새로고침 유지)
+    blacklist: "oh_blacklist_v1"       // 블랙리스트(이름·주소·연락처) — 주문과 무관하게 계속 보존
   };
 
   /* ---------- 헤더(열) 별칭: 이름이 조금 달라도 매핑 ----------
@@ -123,6 +124,7 @@
     orders: [],
     deleted: [],
     sourcingMap: {},        // productId -> {link, category, price}
+    blacklist: [],          // [{name, address, phone, memo, addedAt}]
     ops: defaultOps(),
     pending: null,          // 매핑 확인 대기중인 파싱결과
     ui: { q:"", status:"all", sort:"pendingFirst", view:"sheet", tab:"dashboard", group:"none", colWidths:{}, rowHeights:{}, colOrder:[], customCols:[], layoutVersion:SHEET_LAYOUT_VERSION, sourcingOpen:{} },
@@ -355,8 +357,16 @@
     } else {
       o.sourcingCost = null; o.margin = null; o.marginRate = null;
     }
+    computeRisk(o);
   }
 
+  // 블랙리스트 판정: 수령자명·배송지·연락처가 등록 목록과 겹치면 o.risk = {level, reasons}
+  function computeRisk(o) {
+    if (!window.Blacklist || !state.blacklist || !state.blacklist.length) { o.risk = null; return; }
+    var r = Blacklist.check({ recipient:o.recipient, buyerName:o.buyerName, address:o.address, phone:o.phone, phone2:o.phone2 }, state.blacklist);
+    o.risk = r.level ? { level:r.level, reasons:r.reasons } : null;
+  }
+  function riskOrders() { return state.orders.filter(function (o) { return o.risk && o.risk.level; }); }
   function recomputeAll() { state.orders.forEach(computeMargin); }
 
   function normalizeOrder(o) {
@@ -696,6 +706,10 @@
     safeSetItem(LS.ops, JSON.stringify(state.ops));
     saveSourcingMap();
     saveDeleted();
+    safeSetItem(LS.blacklist, JSON.stringify(state.blacklist || []));
+  }
+  function loadBlacklist() {
+    try { var b = JSON.parse(localStorage.getItem(LS.blacklist)); state.blacklist = Array.isArray(b) ? b : []; } catch (e) { state.blacklist = []; }
   }
   function saveUiOnly() { safeSetItem(LS.ui, JSON.stringify(state.ui)); }
   function saveSourcingMap() {
@@ -880,6 +894,7 @@
     { key:"dashboard", label:"대시보드" },
     { key:"orders",    label:"주문관리" },
     { key:"cs",        label:"CS관리" },
+    { key:"blacklist", label:"블랙리스트" },
     { key:"lineup",    label:"라인업" },
     { key:"sourcing",  label:"매입처DB" },
     { key:"calc",      label:"마진계산기" },
@@ -892,7 +907,7 @@
     { key:"profit",    label:"수익분석" }
   ];
   var TAB_PANE = {
-    process:"process", dashboard:"dashboard", orders:"orders", cs:"cs", lineup:"lineup", sourcing:"sourcing",
+    process:"process", dashboard:"dashboard", orders:"orders", cs:"cs", blacklist:"blacklist", lineup:"lineup", sourcing:"sourcing",
     calc:"calc", daily:"daily", invoice:"invoice", loss:"loss", journal:"journal", accounts:"accounts", cards:"cards", profit:"profit"
   };
 
@@ -900,8 +915,9 @@
     var nav = $("#tabnav"); if (!nav) return;
     var active = state.ui.tab || "dashboard";
     nav.innerHTML = TABS.map(function (t) {
+      var n = t.key === "blacklist" ? riskOrders().length : (t.key === "cs" ? csOrders().length : 0);
       return '<button class="tab' + (t.key === active ? " on" : "") + (t.soon ? " soon" : "") +
-        '" data-tab="' + t.key + '">' + esc(t.label) + '</button>';
+        '" data-tab="' + t.key + '">' + esc(t.label) + (n ? '<span class="tab-count' + (t.key === "blacklist" ? " bad" : "") + '">' + n + '</span>' : "") + '</button>';
     }).join("");
   }
   function setTab(key) {
@@ -915,7 +931,7 @@
     var tab = state.ui.tab || "dashboard";
     if (!TAB_PANE[tab]) { tab = "dashboard"; state.ui.tab = tab; }
     var pane = TAB_PANE[tab];
-    ["process", "dashboard", "orders", "cs", "lineup", "sourcing", "calc", "daily", "invoice", "loss", "journal", "accounts", "cards", "profit"].forEach(function (p) {
+    ["process", "dashboard", "orders", "cs", "blacklist", "lineup", "sourcing", "calc", "daily", "invoice", "loss", "journal", "accounts", "cards", "profit"].forEach(function (p) {
       var el = $("#pane-" + p); if (el) el.classList.toggle("hidden", p !== pane);
     });
     renderSummary();   // #summary(대시보드 패널) 갱신 — 다른 탭이면 숨겨져 있어도 무해
@@ -923,6 +939,7 @@
     else if (tab === "dashboard") renderOverview();
     else if (tab === "orders") renderOrdersPane();
     else if (tab === "cs") renderCsPane();
+    else if (tab === "blacklist") renderBlacklistPane();
     else if (tab === "lineup") renderLineup();
     else if (tab === "sourcing") renderSourcing();
     else if (tab === "calc") renderMarginCalc();
@@ -1017,14 +1034,151 @@
       if (o.csType) s.cs++;
     });
     var rate = s.rev && s.hasMargin ? Math.round(s.margin / s.rev * 1000) / 10 : null;
-    el.innerHTML = '<div class="orders-kpi">' +
+    var riskN = riskOrders().length;
+    var banner = riskN
+      ? '<div class="risk-banner"><span class="tag">주문 처리 위험</span><span><b>블랙리스트와 일치하는 주문이 ' + riskN + '건</b> 있습니다. 해당 행이 빨간색으로 표시됩니다 — 발송 전에 꼭 확인하세요.</span>' +
+        '<span class="spacer"></span><button class="btn sm x-del" data-risk-list type="button">목록 보기</button></div>'
+      : "";
+    el.innerHTML = banner + '<div class="orders-kpi">' +
       orderKpi("오늘의 매출", won(s.rev)) +
       orderKpi("오늘의 순마진", s.hasMargin ? won(s.margin) : "—", s.hasMargin ? (s.margin >= 0 ? "pos" : "neg") : "") +
       orderKpi("오늘의 마진율", fmtPct(rate)) +
       orderKpi("남은 총 주문건", s.remaining + "건") +
       orderKpi("완료된 주문건", s.completed + "건") +
       orderKpi("CS 건", s.cs + "건") +
+      orderKpi("블랙리스트 위험", riskN + "건", riskN ? "neg" : "") +
     '</div>';
+  }
+
+  /* ---------- 블랙리스트 경고 모달 / 탭 ---------- */
+  function showRiskModal() {
+    var list = riskOrders();
+    if (!list.length) { toast("블랙리스트와 일치하는 주문이 없습니다"); return; }
+    var bg = document.createElement("div");
+    bg.className = "modal-bg";
+    bg.innerHTML = '<div class="modal" style="max-width:860px" role="dialog" aria-modal="true">' +
+      '<div class="mhead"><h2>주문 처리 위험 — 블랙리스트 일치 ' + list.length + '건</h2><div class="spacer"></div><button class="btn sm" data-rm-close type="button">닫기</button></div>' +
+      '<div class="mbody"><p class="d" style="margin:0 0 10px">수령자명·배송지·연락처가 블랙리스트와 겹칩니다. 발송 전에 구매처 주문을 취소하거나 고객에게 확인하세요. 주문관리 시트에서는 해당 행이 빨간색으로 표시됩니다.</p>' +
+      '<div class="data-scroll" style="max-height:52vh"><table class="data"><thead><tr><th>판정</th><th>수령자</th><th>주소</th><th>상품</th><th>사유</th><th></th></tr></thead><tbody>' +
+      list.map(function (o) {
+        return '<tr><td><span class="risk-badge ' + esc(o.risk.level) + '">' + (o.risk.level === "danger" ? "위험" : "주의") + '</span></td>' +
+          '<td>' + esc(o.recipient) + '</td><td style="white-space:normal;min-width:220px">' + esc(o.address) + '</td>' +
+          '<td style="white-space:normal;min-width:160px">' + esc(o.productName) + '</td><td style="white-space:normal">' + esc(o.risk.reasons.join(" / ")) + '</td>' +
+          '<td><button class="mini" data-goto-order="' + esc(o.id) + '" type="button">주문으로</button></td></tr>';
+      }).join("") + '</tbody></table></div></div>' +
+      '<div class="mfoot"><button class="btn" data-rm-close type="button">닫기</button><button class="btn primary" data-rm-orders type="button">주문관리에서 보기</button></div></div>';
+    function close() { bg.remove(); }
+    bg.addEventListener("click", function (e) {
+      if (e.target === bg || e.target.closest("[data-rm-close]")) { close(); return; }
+      if (e.target.closest("[data-rm-orders]")) { close(); state.ui.q = ""; state.ui.status = "all"; state.ui.tab = "orders"; persist(); showDashboard(); return; }
+      var g = e.target.closest("[data-goto-order]");
+      if (g) { close(); gotoOrder(g.getAttribute("data-goto-order")); }
+    });
+    document.body.appendChild(bg);
+  }
+  // 어디서든 한 번에: 주문관리 탭을 열고 그 주문만 검색해 보여줌
+  function gotoOrder(id) {
+    var o = findOrder(id); if (!o) return;
+    state.ui.q = o.orderNumber || o.uniqueNo || o.recipient || "";
+    state.ui.status = "all"; state.ui.tab = "orders";
+    persist(); showDashboard();
+    setTimeout(function () {
+      var tr = $('#sheet-table tr[data-id="' + o.id + '"]');
+      if (tr && tr.scrollIntoView) tr.scrollIntoView({ block:"center" });
+    }, 60);
+  }
+
+  function renderBlacklistPane() {
+    var pane = $("#pane-blacklist"); if (!pane) return;
+    var list = state.blacklist || [];
+    var risk = riskOrders();
+    var head = '<div class="ops-head"><div><h2>블랙리스트</h2><p>수령자명·배송지·연락처가 등록 목록과 겹치면 주문관리 행이 <b>빨간색(위험)</b> 또는 노란색(주의)으로 표시됩니다. 이름은 정확일치, 주소는 번지·동·호수까지 맞아야 합니다. 마스킹 이름(김성*)도 인식합니다.</p></div><div class="spacer"></div>' +
+      '<button class="btn sm" data-bl-add type="button">직접 추가</button><button class="btn sm" data-bl-paste type="button">붙여넣기</button>' +
+      '<button class="btn sm" data-bl-recheck type="button">주문 재검사</button></div>';
+    var banner = risk.length
+      ? '<div class="risk-banner"><span class="tag">주문 처리 위험</span><span><b>' + risk.length + '건</b>의 현재 주문이 블랙리스트와 일치합니다.</span><span class="spacer"></span><button class="btn sm x-del" data-risk-list type="button">목록 보기</button></div>'
+      : '<div class="ops-note">현재 주문 중 블랙리스트와 일치하는 건은 없습니다. (등록 ' + list.length + '명)</div>';
+    var matched = risk.length ? '<div class="ops-card" style="margin-bottom:12px"><h3>일치한 주문 ' + risk.length + '건</h3><div class="data-scroll" style="max-height:240px"><table class="data"><thead><tr><th>판정</th><th>수령자</th><th>주소</th><th>상품</th><th>사유</th><th></th></tr></thead><tbody>' +
+      risk.map(function (o) {
+        return '<tr><td><span class="risk-badge ' + esc(o.risk.level) + '">' + (o.risk.level === "danger" ? "위험" : "주의") + '</span></td><td>' + esc(o.recipient) + '</td>' +
+          '<td style="white-space:normal;min-width:220px">' + esc(o.address) + '</td><td style="white-space:normal">' + esc(o.productName) + '</td>' +
+          '<td style="white-space:normal">' + esc(o.risk.reasons.join(" / ")) + '</td><td><button class="mini" data-goto-order="' + esc(o.id) + '" type="button">주문으로</button></td></tr>';
+      }).join("") + '</tbody></table></div></div>' : "";
+    var rows = list.map(function (b, i) {
+      return '<tr data-bl-idx="' + i + '">' +
+        '<td><input data-bl-field="name" value="' + esc(b.name || "") + '" placeholder="이름" /></td>' +
+        '<td style="min-width:320px"><input data-bl-field="address" value="' + esc(b.address || "") + '" placeholder="주소(번지·동·호까지)" /></td>' +
+        '<td><input data-bl-field="phone" value="' + esc(b.phone || "") + '" placeholder="연락처" /></td>' +
+        '<td><input data-bl-field="memo" value="' + esc(b.memo || "") + '" placeholder="사유" /></td>' +
+        '<td class="muted-note">' + esc(b.addedAt || "") + '</td>' +
+        '<td><button class="mini red" data-bl-del type="button">삭제</button></td></tr>';
+    }).join("");
+    pane.innerHTML = head + banner + matched +
+      '<div class="data-scroll"><table class="data"><thead><tr><th>이름</th><th>주소</th><th>연락처</th><th>사유</th><th>등록일</th><th></th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:28px">등록된 사람이 없습니다 — [직접 추가]하거나 엑셀 워크북(블랙리스트 시트)을 설정에서 가져오세요.</td></tr>') +
+      '</tbody></table></div>';
+  }
+  function showTextareaModal(opts, onOk) {
+    var bg = document.createElement("div");
+    bg.className = "modal-bg";
+    bg.innerHTML = '<div class="modal" style="max-width:560px" role="dialog" aria-modal="true">' +
+      '<div class="mhead"><h2>' + esc(opts.title || "") + '</h2></div>' +
+      '<div class="mbody"><p class="d" style="margin:0 0 8px;white-space:pre-line">' + esc(opts.body || "") + '</p>' +
+      '<textarea class="full-in" data-ta style="min-height:140px;font-family:ui-monospace,Menlo,monospace;font-size:12px" placeholder="' + esc(opts.placeholder || "") + '"></textarea></div>' +
+      '<div class="mfoot"><button class="btn" data-ta-cancel type="button">취소</button><button class="btn primary" data-ta-ok type="button">' + esc(opts.okLabel || "확인") + '</button></div></div>';
+    function close() { bg.remove(); }
+    bg.addEventListener("click", function (e) {
+      if (e.target === bg || e.target.closest("[data-ta-cancel]")) { close(); return; }
+      if (e.target.closest("[data-ta-ok]")) { var v = bg.querySelector("[data-ta]").value; close(); onOk(v); }
+    });
+    document.body.appendChild(bg);
+    setTimeout(function () { var t = bg.querySelector("[data-ta]"); if (t) t.focus(); }, 30);
+  }
+  function addToBlacklist(entry, quiet) {
+    if (!window.Blacklist) return 0;
+    var n = Blacklist.merge(state.blacklist, [entry], todayKey());
+    if (n) { recomputeAll(); persist(); render(); }
+    if (!quiet) toast(n ? "블랙리스트에 등록했어요" : "이미 등록된 사람입니다");
+    return n;
+  }
+  function onBlacklistClick(e) {
+    var t = e.target;
+    if (t.closest("[data-bl-add]")) {
+      state.blacklist.unshift({ name:"", address:"", phone:"", memo:"", addedAt:todayKey() });
+      persist(); renderBlacklistPane();
+      var first = $("#pane-blacklist input[data-bl-field=name]"); if (first) first.focus();
+      return;
+    }
+    if (t.closest("[data-bl-paste]")) {
+      showTextareaModal({ title:"블랙리스트 붙여넣기", body:"한 줄에 한 명. 이름[탭]주소[탭]연락처[탭]사유 순서입니다 (엑셀에서 복사한 그대로).", placeholder:"홍길동\t서울시 …\t010-0000-0000\t사유", okLabel:"등록" }, function (text) {
+        if (!window.Blacklist) return;
+        var n = Blacklist.merge(state.blacklist, Blacklist.parseText(text), todayKey());
+        recomputeAll(); persist(); render();
+        toast(n + "명을 등록했어요");
+      });
+      return;
+    }
+    if (t.closest("[data-bl-recheck]")) { recomputeAll(); persist(); render(); toast("주문 " + state.orders.length + "건을 다시 검사했어요 — 위험 " + riskOrders().length + "건"); return; }
+    var del = t.closest("[data-bl-del]");
+    if (del) {
+      var tr = del.closest("tr[data-bl-idx]"); var i = parseInt(tr.getAttribute("data-bl-idx"), 10);
+      var b = state.blacklist[i];
+      showConfirm({ title:"블랙리스트 삭제", body:(b && b.name ? "'" + b.name + "'" : "이 항목") + "을(를) 목록에서 지웁니다.", okLabel:"삭제", danger:true }, function () {
+        state.blacklist.splice(i, 1); recomputeAll(); persist(); render();
+      });
+      return;
+    }
+    var g = t.closest("[data-goto-order]");
+    if (g) { gotoOrder(g.getAttribute("data-goto-order")); return; }
+  }
+  var blRecheckTimer;
+  function onBlacklistInput(e) {
+    var el = e.target; if (!el.matches("input[data-bl-field]")) return;
+    var tr = el.closest("tr[data-bl-idx]"); if (!tr) return;
+    var b = state.blacklist[parseInt(tr.getAttribute("data-bl-idx"), 10)]; if (!b) return;
+    b[el.getAttribute("data-bl-field")] = el.value;
+    clearTimeout(blRecheckTimer);
+    blRecheckTimer = setTimeout(function () { recomputeAll(); persist(); renderTabs(); }, 400);
   }
 
   /* ---------- 대시보드 / 수익분석 공통 집계 ---------- */
@@ -1890,6 +2044,7 @@
   var SHEET_COLS = [
     { key:"done",          label:"완료",       type:"done",    w:58  },
     { key:"rowActions",    label:"입력",       type:"actions", w:68  },
+    { key:"risk",          label:"위험",       type:"calc",    w:60  },
     { key:"orderId",       label:"주문번호(구매처)", type:"text", w:124 },
     { key:"manager",       label:"담당자",     type:"text",    w:76  },
     { key:"vendor",        label:"구매처",     type:"text",    w:88  },
@@ -2087,7 +2242,11 @@
   }
   function calcCellHtml(o, c) {
     var cls = "calc", inner;
-    if (c.key === "category") inner = esc(o.category || "—");
+    if (c.key === "risk") {
+      cls += " risk-cell";
+      inner = o.risk ? '<span class="risk-badge ' + esc(o.risk.level) + '" title="' + esc(o.risk.reasons.join(" / ")) + '">' + (o.risk.level === "danger" ? "위험" : "주의") + '</span>' : "";
+    }
+    else if (c.key === "category") inner = esc(o.category || "—");
     else if (c.key === "feeRate") inner = (o.feeRate != null ? esc(o.feeRate) + "%" : "—");
     else if (c.key === "margin") {
       if (o.margin == null) { inner = '<span class="muted-note">매입가 필요</span>'; }
@@ -2128,6 +2287,8 @@
   }
   function sheetRowClass(o) {
     var cls = "row-" + (o.status || "pending");
+    if (o.risk && o.risk.level === "danger") cls += " row-danger";
+    else if (o.risk && o.risk.level) cls += " row-warn";
     if (o.csType === "출고중지요청") cls += " row-stop";
     if (o.csType === "반품접수") cls += " row-return";
     return cls;
@@ -3060,6 +3221,32 @@
     return rules;
   }
 
+  // 9월 워크북 '수수료' 시트: "플랫폼 | 카테고리 | 수수료율 | 수수료율(vat포함)" 블록을 찾아 카테고리별 수수료율만 갱신
+  function loadFeeTableFromWorkbook(m) {
+    if (!m || !m.length) return 0;
+    var rateCol = -1, headRow = -1;
+    for (var r = 0; r < Math.min(m.length, 12) && rateCol < 0; r++) {
+      var row = m[r] || [];
+      for (var c = 0; c < row.length; c++) {
+        if (norm(row[c]) === "수수료율" && norm(row[c + 1]).indexOf("vat") !== -1 && norm(row[c - 1]) === "카테고리") { rateCol = c; headRow = r; break; }
+      }
+    }
+    if (rateCol < 0) return 0;
+    var byName = {};
+    state.rules.categories.forEach(function (cat) { byName[cat.name] = cat; });
+    var n = 0;
+    for (var i = headRow + 1; i < m.length; i++) {
+      var name = String((m[i] || [])[rateCol - 1] || "").trim();
+      var rate = toNumber((m[i] || [])[rateCol]);
+      if (!name || rate <= 0) continue;
+      var pct = rate100(rate);
+      if (byName[name]) { if (byName[name].feeRate !== pct) { byName[name].feeRate = pct; n++; } }
+      else { byName[name] = { name:name, feeRate:pct, keywords:[] }; state.rules.categories.push(byName[name]); n++; }
+    }
+    if (n) { saveRules(); recomputeAll(); }
+    return n;
+  }
+
   function loadSourcingFromWorkbook(srcM) {
     if (!srcM) return 0;
     // 소싱 라인업 헤더: A업로드 B상품명 C노출상품ID … I소싱가 … U쿠팡링크 V소싱링크
@@ -3276,6 +3463,11 @@
         var mainM = wbSheetMatrix(wb, ["수행일지·본업", "수행일지-본업"]);
         var accM = wbSheetMatrix(wb, ["계정관리", "계정 관리"]);
         var cardM = wbSheetMatrix(wb, ["카드관리", "카드 관리"]);
+        // 9월 수기 워크북: 구조는 옮기지 않고 데이터만 — 블랙리스트 명단, 카테고리별 수수료율
+        var blM = wbSheetMatrix(wb, ["블랙리스트", "blacklist"]);
+        var blN = (blM && window.Blacklist) ? Blacklist.merge(state.blacklist, Blacklist.fromMatrix(blM), todayKey()) : 0;
+        var feeSepM = wbSheetMatrix(wb, ["수수료"]);
+        var feeSepN = loadFeeTableFromWorkbook(feeSepM);
         if (feeM || clsM) {
           state.rules = buildRulesFromWorkbook(feeM, clsM);
           saveRules();
@@ -3288,12 +3480,14 @@
         var mainN = loadJournalFromWorkbook(mainM, "journalMain");
         var accN = loadSimpleOpsFromWorkbook(accM, "accounts");
         var cardN = loadSimpleOpsFromWorkbook(cardM, "cards");
-        var importedN = (feeM || clsM ? 1 : 0) + procN + lineN + n + dbN + sideN + mainN + accN + cardN;
+        var importedN = (feeM || clsM ? 1 : 0) + procN + lineN + n + dbN + sideN + mainN + accN + cardN + blN + feeSepN;
         if (!importedN) { toast("워크북에서 가져올 수 있는 탭을 찾지 못했어요"); return; }
         recomputeAll(); persist();
         openSettings();
         if (!$("#view-dashboard").classList.contains("hidden")) render();
-        toast("워크북 가져오기 완료: 카테고리 " + state.rules.categories.length + "개 · 라인업 " + lineN + "건 · DB " + dbN + "건");
+        toast("워크북 가져오기 완료: 카테고리 " + state.rules.categories.length + "개" + (feeSepN ? " (수수료 " + feeSepN + "건 갱신)" : "") +
+          (blN ? " · 블랙리스트 " + blN + "명 추가" : "") + (lineN ? " · 라인업 " + lineN + "건" : "") + (dbN ? " · DB " + dbN + "건" : ""));
+        if (blN) { recomputeAll(); render(); if (riskOrders().length) setTimeout(showRiskModal, 250); }
       } catch (err) { toast("워크북을 읽지 못했어요: " + (err.message || "")); }
       }).catch(function (err) { toast("워크북을 읽지 못했어요: " + (err.message || "")); });
     };
@@ -3501,7 +3695,9 @@
     if (!state.orders.length) { toast("유효한 주문 행이 없어요"); return; }
     persist();
     showDashboard();
-    toast(state.orders.length + "건의 주문을 정리했어요");
+    var riskN = riskOrders().length;
+    toast(state.orders.length + "건의 주문을 정리했어요" + (riskN ? " · 블랙리스트 위험 " + riskN + "건" : ""));
+    if (riskN) setTimeout(showRiskModal, 250);
   }
 
   function handleMapFile(file) {
@@ -3577,6 +3773,7 @@
   function init() {
     loadRules();
     loadCloud();
+    loadBlacklist();
 
     // 열 매핑 표 — 1회 바인딩 (showMapping 안에서 등록하면 업로드마다 누적됨)
     var mapRows = $("#map-rows");
@@ -3704,6 +3901,18 @@
     var memoClose = $("#btn-memo-close"); if (memoClose) memoClose.addEventListener("click", closeMemo);
     var memoCancel = $("#btn-memo-cancel"); if (memoCancel) memoCancel.addEventListener("click", closeMemo);
     var memoAdd = $("#btn-memo-add"); if (memoAdd) memoAdd.addEventListener("click", addMemo);
+    var memoBl = $("#btn-memo-blacklist"); if (memoBl) memoBl.addEventListener("click", function () {
+      var o = findOrder(memoOrderId); if (!o) return;
+      showConfirm({ title:"블랙리스트 등록", body:(o.recipient || "(이름 없음)") + "\n" + (o.address || ""), okLabel:"등록", danger:true }, function () {
+        addToBlacklist({ name:o.recipient || "", address:o.address || "", phone:o.phone || "", memo:"주문 " + (o.orderNumber || "") + " 에서 등록" });
+        closeMemo();
+      });
+    });
+    var blPane = $("#pane-blacklist");
+    if (blPane) { blPane.addEventListener("click", onBlacklistClick); blPane.addEventListener("input", onBlacklistInput); }
+    document.addEventListener("click", function (e) {
+      if (e.target.closest("[data-risk-list]")) showRiskModal();
+    });
     var memoList = $("#memo-list");
     if (memoList) memoList.addEventListener("click", function (e) {
       var b = e.target.closest("[data-memo-del]"); if (!b) return;
