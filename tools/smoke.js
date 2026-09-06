@@ -116,6 +116,41 @@ const server = http.createServer((req, res) => {
     const heads = await page.$$eval("#sheet-table thead th[data-k]", (els) => els.map((e) => e.getAttribute("data-k")));
     console.log("  시트 행:", rows, "| 열:", heads.join(","));
 
+    // 복사 툴바: 행 번호 클릭 → 툴바 표시, 내 번호 없으면 전화 버튼이 '내 번호 없음', 설정 후 순차 복사
+    if (rows) {
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]).catch(() => {});
+      await page.locator("#sheet-table tbody tr[data-id] td.rownum").first().click();
+      await page.waitForTimeout(150);
+      const barVisible = !(await page.locator("#copy-bar").getAttribute("class") || "").includes("hidden");
+      const phoneLabel = await page.locator('#copy-bar [data-copy-piece="phone"]').textContent().catch(() => "");
+      console.log("  복사 툴바:", barVisible ? "표시됨" : "숨김", "| 전화 버튼:", phoneLabel.trim());
+      if (!barVisible) errors.push("복사 툴바가 안 뜸");
+      await page.locator('#copy-bar [data-copy-piece="name"]').click();
+      await page.waitForTimeout(150);
+      const clip1 = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "(클립보드 읽기 불가)");
+      console.log("  [이름] 복사 →", JSON.stringify(clip1));
+      // 내 번호 설정 후 전화·전체 복사
+      await page.evaluate(() => { const r = JSON.parse(localStorage.getItem("oh_rules_v1") || "{}"); r.myPhone = "010-1111-2222"; localStorage.setItem("oh_rules_v1", JSON.stringify(r)); });
+      await page.reload(); await page.waitForTimeout(500);
+      await page.click('#tabnav [data-tab="orders"]'); await page.waitForTimeout(200);
+      await page.locator("#sheet-table tbody tr[data-id] td.rownum").first().click(); await page.waitForTimeout(150);
+      await page.locator('#copy-bar [data-copy-piece="phone"]').click(); await page.waitForTimeout(120);
+      const clip2 = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+      await page.locator('#copy-bar [data-copy-piece="all"]').click(); await page.waitForTimeout(120);
+      const clip3 = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+      console.log("  [전화] →", JSON.stringify(clip2), "| [전체] 줄 수:", clip3.split("\n").length, "| 고객번호 포함?", /0502-/.test(clip3));
+      if (clip2 !== "010-1111-2222") errors.push("전화 복사가 내 번호가 아님: " + clip2);
+      if (/0502-/.test(clip3)) errors.push("전체 복사에 고객 번호가 들어감");
+      await page.locator('#copy-bar [data-copy-autofill]').click(); await page.waitForTimeout(150);
+      const clip4 = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+      let payload = null; try { payload = JSON.parse(clip4); } catch (e) {}
+      console.log("  [입력준비] payload:", payload ? Object.keys(payload).join(",") : "(JSON 아님)");
+      if (!payload || payload.__oh !== 2 || payload.phone !== "010-1111-2222" || !payload.base) errors.push("입력준비 페이로드 이상: " + clip4.slice(0, 80));
+      await page.locator('#copy-bar [data-copy-seq]').check(); await page.waitForTimeout(120);
+      console.log("  순차 모드:", (await page.locator("#copy-bar .copy-seq").textContent()).replace(/\s+/g, " ").trim(), "| 강조:", await page.locator("#copy-bar .seq-cur").textContent().catch(() => "-"));
+      await page.locator('#copy-bar [data-copy-seq]').uncheck();
+    }
+
     // 내보내기 — 모달의 모든 버튼
     await page.click("#btn-export");
     await page.waitForTimeout(200);

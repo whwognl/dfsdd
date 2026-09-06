@@ -306,6 +306,9 @@
     if (!state.rules.defaultCategory) state.rules.defaultCategory = "기타";
     if (state.rules.defaultFeeRate === undefined) state.rules.defaultFeeRate = 10.8;
     if (state.rules.myPhone == null) state.rules.myPhone = "";   // 자동입력용 내 연락처 (기기 설정)
+    if (!state.rules.phoneStyle) state.rules.phoneStyle = "hyphen";      // 복사할 내 번호 형식: hyphen | plain
+    if (!state.rules.addrRefPolicy) state.rules.addrRefPolicy = "drop";  // 상세주소에 (동명, 건물명) 참고항목: drop | append
+    if (!state.rules.seqPresetByVendor || typeof state.rules.seqPresetByVendor !== "object") state.rules.seqPresetByVendor = {};
   }
   function loadRules() {
     var saved = null;
@@ -2380,6 +2383,9 @@
     }
     renderOrdersDashboard();
     updateUndoButton();
+    if (state.ui.selectedOrderId && !findOrder(state.ui.selectedOrderId)) state.ui.selectedOrderId = "";
+    if (state.ui.selectedOrderId) { var selTr = $('#sheet-table tr[data-id="' + state.ui.selectedOrderId + '"]'); if (selTr) selTr.classList.add("sel-row"); }
+    renderCopyBar();
   }
 
   // 한 행의 입력값 → 주문 객체에 반영(타입별 변환)
@@ -2448,7 +2454,13 @@
     renderOrdersDashboard();
     persist();
   }
+  function onSheetFocusIn(e) {
+    var tr = e.target.closest && e.target.closest("tr[data-id]");
+    if (tr && tr.getAttribute("data-id") !== state.ui.selectedOrderId) selectSheetRow(tr.getAttribute("data-id"));
+  }
   function onSheetClick(e) {
+    var rowTr = e.target.closest("tr[data-id]");
+    if (rowTr && (e.target.closest("td.rownum") || e.target.closest("td.calc"))) selectSheetRow(rowTr.getAttribute("data-id"));
     var customDel = e.target.closest("[data-custom-col-del]");
     if (customDel) {
       deleteCustomColumn(customDel.getAttribute("data-custom-col-del"));
@@ -2850,24 +2862,180 @@
    *  - 로그인·결제는 사용자가 직접. (자동 로그인/결제/스크래핑은 만들지 않음)
    *  ※ 사이트 폼이 바뀌면 칸 인식이 빗나갈 수 있어 결제 전 확인 필요.
    * ===================================================================== */
+  /* ---------- 내 번호 (자동입력·복사에 쓰는 유일한 전화 출처) ----------
+   * 비어 있으면 null 을 돌려주고 호출측은 즉시 중단 — 고객 번호로 대체하는 폴백은 두지 않습니다. */
+  function getAutofillPhone() {
+    if (!window.CopyHelpers) return null;
+    var pf = CopyHelpers.phoneForms(state.rules.myPhone || "");
+    return pf.valid ? pf : null;
+  }
+  function requireMyPhone() {
+    var pf = getAutofillPhone();
+    if (pf) return pf;
+    toast("설정에서 '자동입력용 내 연락처'를 먼저 입력하세요 (고객 번호 노출 방지)");
+    openSettings();
+    setTimeout(function () { var f = $("#set-myphone"); if (f) f.focus(); }, 150);
+    return null;
+  }
   function copyAutofill(o) {
-    var myPhone = (state.rules.myPhone || "").trim();   // 항상 '내 번호'만 — 고객 번호는 절대 안 들어감
-    if (!myPhone) {
-      // 고객 번호가 구매처(도매몰)에 노출되는 사고 방지: 설정 전에는 자동입력 준비 자체를 막음
-      toast("설정에서 '자동입력용 내 연락처'를 먼저 입력하세요 (고객 번호 노출 방지)");
-      openSettings();
-      setTimeout(function () { var f = $("#set-myphone"); if (f) f.focus(); }, 150);
+    var pf = requireMyPhone(); if (!pf) return;
+    var payload = CopyHelpers.buildPayload(o, state.rules.myPhone);
+    if (!payload) return;
+    copyText(JSON.stringify(payload), "자동입력 데이터");
+    setTimeout(function () { toast("준비됨 (전화=내번호) — 사이트에서 주문 자동입력 클릭"); }, 50);
+  }
+
+  /* ---------- 한 줄 복사 툴바 ----------
+   * 시트에서 행을 고르면(행 번호 클릭 또는 칸 포커스) 시트 위에 나타납니다.
+   * [이름] [전화·내번호] [우편번호] [기본주소] [상세주소] [배송메시지] [전체주소] [전체] · 순차 모드 · [입력준비]
+   * 전화는 어떤 버튼에서도 고객 번호가 아니라 설정의 내 번호만 나갑니다. */
+  var SEQ_PRESETS = {
+    P1: { label:"팝업형",   pieces:["name","phone","base","detail","memo"] },
+    P2: { label:"통합형",   pieces:["name","phone","zip","addrFull","memo"] },
+    P3: { label:"3분할전화", pieces:["name","phoneMid","phoneLast","base","detail","memo"] }
+  };
+  var PIECE_LABEL = { name:"이름", phone:"전화·내번호", phoneMid:"전화 가운데", phoneLast:"전화 끝", zip:"우편번호", base:"기본주소", detail:"상세주소", addrFull:"전체주소", memo:"배송메시지", all:"전체" };
+  function selectedOrder() { return state.ui.selectedOrderId ? findOrder(state.ui.selectedOrderId) : null; }
+  function seqPresetFor(o) {
+    var byV = state.rules.seqPresetByVendor || {};
+    var key = o && o.vendor ? byV[o.vendor] : "";
+    return SEQ_PRESETS[key] ? key : "P1";
+  }
+  // 조각 값 계산 — 전화 계열은 내 번호가 없으면 null
+  function pieceValue(o, piece) {
+    var H = window.CopyHelpers;
+    if (!H || !o) return null;
+    var sp = H.splitAddress(o.address);
+    var detail = sp.detail;
+    if (state.rules.addrRefPolicy === "append" && sp.ref) detail = (detail + " (" + sp.ref + ")").trim();
+    if (piece === "name") return String(o.recipient || "").trim();
+    if (piece === "zip") return H.normZip(o.zipcode);
+    if (piece === "base") return sp.method === "none" ? sp.full : sp.base;
+    if (piece === "detail") return sp.method === "none" ? "" : detail;
+    if (piece === "addrFull") return sp.full;
+    if (piece === "memo") return String(o.deliveryMsg || "").replace(/\s+/g, " ").trim();
+    var pf = getAutofillPhone();
+    if (piece === "phone") return pf ? (state.rules.phoneStyle === "plain" ? pf.plain : pf.hyphen) : null;
+    if (piece === "phoneMid") return pf && pf.parts.length === 3 ? pf.parts[1] : null;
+    if (piece === "phoneLast") return pf && pf.parts.length === 3 ? pf.parts[2] : null;
+    if (piece === "all") return pf ? H.shippingText(o, state.rules.myPhone) : null;
+    return null;
+  }
+  function renderCopyBar() {
+    var bar = $("#copy-bar"); if (!bar) return;
+    var o = selectedOrder();
+    if (!o) { bar.classList.add("hidden"); bar.innerHTML = ""; return; }
+    var H = window.CopyHelpers;
+    var sp = H ? H.splitAddress(o.address) : { method:"none" };
+    var pf = getAutofillPhone();
+    var seq = state.ui.seq || { on:false, idx:0 };
+    var presetKey = seqPresetFor(o), preset = SEQ_PRESETS[presetKey];
+    var cur = seq.on ? preset.pieces[Math.min(seq.idx, preset.pieces.length - 1)] : "";
+    function btn(piece, extraCls) {
+      var v = pieceValue(o, piece);
+      var isPhone = piece === "phone" || piece === "phoneMid" || piece === "phoneLast" || piece === "all";
+      var disabled = !isPhone && (v === null || v === "");
+      var label = PIECE_LABEL[piece];
+      if (isPhone && !pf) label = (piece === "all" ? "전체" : "내 번호 없음");
+      var cls = "mini" + (extraCls ? " " + extraCls : "") + (cur === piece ? " seq-cur" : "") + (isPhone && !pf ? " red" : "");
+      var title = piece === "base" && sp.method === "guess" ? "분리 확신 낮음 — 확인하세요" : (piece === "base" && sp.method === "none" ? "자동 분리 못 함 — 전체주소가 복사됩니다" : (v || ""));
+      return '<button class="' + cls + '" data-copy-piece="' + piece + '" type="button"' + (disabled ? " disabled" : "") + ' title="' + esc(title) + '">' + esc(label) + '</button>';
+    }
+    var extras = preset.pieces.filter(function (p) { return ["phoneMid","phoneLast","addrFull"].indexOf(p) !== -1; });
+    bar.classList.remove("hidden");
+    bar.innerHTML =
+      '<span class="copy-ctx"><b>' + esc(o.recipient || "(수령자 없음)") + '</b>' + (o.vendor ? ' · ' + esc(o.vendor) : '') +
+        (sp.method === "guess" ? ' <span class="copy-dot warn" title="주소 분리 확신 낮음"></span>' : (sp.method === "none" ? ' <span class="copy-dot bad" title="주소 자동 분리 실패"></span>' : '')) + '</span>' +
+      btn("name") + btn("phone") + btn("zip") + btn("base") + btn("detail") + btn("memo") +
+      extras.map(function (p) { return btn(p); }).join("") +
+      btn("all", "blue") +
+      '<select class="copy-sel" data-copy-phonestyle title="내 번호 형식"><option value="hyphen"' + (state.rules.phoneStyle !== "plain" ? " selected" : "") + '>010-0000-0000</option><option value="plain"' + (state.rules.phoneStyle === "plain" ? " selected" : "") + '>01000000000</option></select>' +
+      '<span class="spacer"></span>' +
+      '<label class="copy-seq"><input type="checkbox" data-copy-seq' + (seq.on ? " checked" : "") + '> 순차' +
+        (seq.on ? ' <b>' + Math.min(seq.idx + 1, preset.pieces.length) + '/' + preset.pieces.length + '</b>' : '') + '</label>' +
+      '<select class="copy-sel" data-copy-preset title="순차 복사 순서 (구매처별로 기억)">' + Object.keys(SEQ_PRESETS).map(function (k) {
+        return '<option value="' + k + '"' + (k === presetKey ? " selected" : "") + '>' + esc(SEQ_PRESETS[k].label) + '</option>';
+      }).join("") + '</select>' +
+      '<button class="mini blue" data-copy-autofill type="button" title="자동입력용 데이터를 클립보드에 넣고, 구매링크가 있으면 새 탭으로 엽니다">입력준비 ↗</button>' +
+      (o.status === "pending" ? '<button class="mini green" data-copy-done type="button" title="주문여부 O · 결제일시 기록">구매완료 표시</button>' : '<span class="thin-badge best-badge">' + esc(statusLabel(o.status)) + '</span>');
+  }
+  function selectSheetRow(id, opts) {
+    opts = opts || {};
+    if (state.ui.selectedOrderId !== id) {
+      state.ui.selectedOrderId = id;
+      state.ui.seq = { on: !!(state.ui.seq && state.ui.seq.on), idx: 0 };
+    }
+    $$("#sheet-table tr.sel-row").forEach(function (tr) { tr.classList.remove("sel-row"); });
+    var tr = $('#sheet-table tr[data-id="' + id + '"]'); if (tr) tr.classList.add("sel-row");
+    renderCopyBar();
+  }
+  function copyPiece(o, piece) {
+    var v = pieceValue(o, piece);
+    if (v === null) { requireMyPhone(); return false; }
+    if (v === "") { toast(PIECE_LABEL[piece] + " 값이 없습니다"); return false; }
+    copyText(v, PIECE_LABEL[piece]);
+    state.ui.lastCopied = { orderId:o.id, piece:piece, at:Date.now() };
+    return true;
+  }
+  function onCopyBarClick(e) {
+    var o = selectedOrder(); if (!o) return;
+    var b = e.target.closest("[data-copy-piece]");
+    if (b) {
+      var piece = b.getAttribute("data-copy-piece");
+      if (!copyPiece(o, piece)) return;
+      var seq = state.ui.seq || { on:false, idx:0 };
+      if (seq.on) {
+        var pieces = SEQ_PRESETS[seqPresetFor(o)].pieces;
+        var at = pieces.indexOf(piece);
+        seq.idx = at >= 0 ? Math.min(at + 1, pieces.length) : seq.idx;
+        if (seq.idx >= pieces.length) setTimeout(function () { toast("마지막 조각까지 복사했어요 — 결제 확인 후 [구매완료 표시]"); }, 60);
+        renderCopyBar();
+      }
       return;
     }
-    var payload = JSON.stringify({
-      __oh: true,
-      name: o.recipient || "",
-      phone: myPhone,
-      zip: o.zipcode || "",
-      addr: o.address || ""
-    });
-    copyText(payload, "자동입력 데이터");
-    setTimeout(function () { toast("준비됨 (전화=내번호) — 사이트에서 주문 자동입력 클릭"); }, 50);
+    if (e.target.closest("[data-copy-autofill]")) {
+      copyAutofill(o);
+      if (o.sourcingLink && safeUrl(o.sourcingLink)) openSafeUrl(o.sourcingLink);
+      return;
+    }
+    if (e.target.closest("[data-copy-done]")) {
+      o.status = "purchased";
+      if (!o.paidAt) o.paidAt = nowStamp();
+      if (!o.orderedYn) o.orderedYn = "O";
+      computeMargin(o); persist(); render(); selectSheetRow(o.id);
+      toast("구매완료로 표시했어요");
+      return;
+    }
+  }
+  function onCopyBarChange(e) {
+    var o = selectedOrder(); if (!o) return;
+    var el = e.target;
+    if (el.matches("[data-copy-seq]")) { state.ui.seq = { on: el.checked, idx: 0 }; renderCopyBar(); return; }
+    if (el.matches("[data-copy-phonestyle]")) { state.rules.phoneStyle = el.value; saveRules(); renderCopyBar(); return; }
+    if (el.matches("[data-copy-preset]")) {
+      if (o.vendor) state.rules.seqPresetByVendor[o.vendor] = el.value;
+      else state.rules.seqPresetByVendor[""] = el.value;
+      saveRules(); state.ui.seq = { on: !!(state.ui.seq && state.ui.seq.on), idx: 0 }; renderCopyBar();
+    }
+  }
+  // 순차 모드 단축키: 입력칸에 포커스가 없을 때만 Enter/Space = 다음 조각, ←/→ 이동, Esc 해제
+  function onSeqKey(e) {
+    var seq = state.ui.seq; if (!seq || !seq.on) return;
+    var t = e.target; if (t && t.matches && t.matches("input,select,textarea")) return;
+    var o = selectedOrder(); if (!o) return;
+    var pieces = SEQ_PRESETS[seqPresetFor(o)].pieces;
+    if (e.key === "Escape") { state.ui.seq.on = false; renderCopyBar(); return; }
+    if (e.key === "ArrowLeft") { seq.idx = Math.max(0, seq.idx - 1); renderCopyBar(); e.preventDefault(); return; }
+    if (e.key === "ArrowRight") { seq.idx = Math.min(pieces.length - 1, seq.idx + 1); renderCopyBar(); e.preventDefault(); return; }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      var piece = pieces[Math.min(seq.idx, pieces.length - 1)];
+      if (copyPiece(o, piece)) { seq.idx = Math.min(seq.idx + 1, pieces.length); renderCopyBar(); }
+    }
+  }
+  function nowStamp() {
+    var d = new Date(); function p(n){ return ("0" + n).slice(-2); }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
   }
 
   // 구매 사이트에서 실행되는 북마클릿 (클립보드의 주문데이터를 폼 칸에 채움)
@@ -2880,7 +3048,9 @@
     "var r=[];if(sv(fd(['받는','수령','수취','성명','이름','recipient','name']),d.name))r.push('이름');" +
     "if(sv(fd(['연락처','휴대폰','휴대전화','전화','핸드폰','phone','mobile']),d.phone))r.push('전화');" +
     "if(sv(fd(['우편','zip','postal']),d.zip))r.push('우편');" +
-    "if(sv(fd(['주소','address','addr','도로명','지번']),d.addr))r.push('주소');" +
+    "var det=fd(['상세','detail','addr2','address2','나머지']);var base=d.base||d.addr;" +
+    "if(det){if(sv(fd(['주소','address','addr','도로명','지번']),base))r.push('기본주소');if(sv(det,d.detail||''))r.push('상세주소');}" +
+    "else if(sv(fd(['주소','address','addr','도로명','지번']),d.addr))r.push('주소');" +
     "alert('자동입력 완료: '+(r.join(', ')||'(맞는 칸 못 찾음)')+'\\n결제 전에 꼭 확인하세요!')}" +
     "catch(e){alert('주문 데이터를 못 읽었어요.\\n앱 시트에서 [입력준비]를 먼저 누른 뒤 이 페이지에서 다시 클릭하세요.')}})()";
 
@@ -3950,7 +4120,11 @@
       st.addEventListener("dragend", onSheetDragEnd);
       st.addEventListener("keydown", onSheetKey);
       st.addEventListener("paste", onSheetPaste);
+      st.addEventListener("focusin", onSheetFocusIn);
     }
+    var cb = $("#copy-bar");
+    if (cb) { cb.addEventListener("click", onCopyBarClick); cb.addEventListener("change", onCopyBarChange); }
+    document.addEventListener("keydown", onSeqKey);
     var csPane = $("#pane-cs");
     if (csPane) {
       csPane.addEventListener("click", onCsClick);

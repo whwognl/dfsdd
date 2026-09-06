@@ -349,6 +349,22 @@
 
   /* ---- 주문관리 상단 KPI ---- */
   .orders-kpi{display:grid; grid-template-columns:repeat(auto-fit,minmax(138px,1fr)); gap:10px; margin-bottom:12px}
+  /* ---- 한 줄 복사 툴바 ---- */
+  .copy-bar{position:sticky; top:112px; z-index:11; display:flex; align-items:center; gap:5px; flex-wrap:wrap;
+    background:rgba(255,255,255,.92); backdrop-filter:saturate(180%) blur(14px); -webkit-backdrop-filter:saturate(180%) blur(14px);
+    border:1px solid var(--brand-line); border-radius:var(--r-md); padding:7px 10px; margin-bottom:8px; box-shadow:var(--shadow)}
+  .copy-bar .copy-ctx{font-size:var(--fs-footnote); color:var(--muted); margin-right:6px; white-space:nowrap; max-width:260px; overflow:hidden; text-overflow:ellipsis}
+  .copy-bar .copy-ctx b{color:var(--ink); font-weight:var(--w-semi)}
+  .copy-bar .mini{min-height:26px; padding:3px 9px; font-size:var(--fs-footnote)}
+  .copy-bar .mini.seq-cur{box-shadow:0 0 0 2px var(--brand); border-color:var(--brand); color:var(--brand)}
+  .copy-bar .spacer{flex:1}
+  .copy-bar .copy-seq{display:inline-flex; align-items:center; gap:4px; font-size:var(--fs-footnote); color:var(--muted); white-space:nowrap}
+  .copy-bar .copy-seq b{color:var(--brand); font-weight:var(--w-semi)}
+  .copy-bar .copy-sel{border:1px solid var(--line); border-radius:var(--r-sm); padding:3px 5px; font-size:var(--fs-caption); background:#fff; color:var(--muted)}
+  .copy-dot{display:inline-block; width:7px; height:7px; border-radius:50%; margin-left:4px; vertical-align:middle}
+  .copy-dot.warn{background:var(--warn-accent)} .copy-dot.bad{background:var(--bad)}
+  table.sheet tbody tr.sel-row td{box-shadow:inset 0 2px 0 var(--brand), inset 0 -2px 0 var(--brand)}
+  table.sheet tbody tr.sel-row td.rownum{background:var(--brand-bg); color:var(--brand); font-weight:var(--w-semi)}
   /* ---- 블랙리스트 ---- */
   table.sheet tbody tr.row-danger td{background:var(--bad-row)}
   table.sheet tbody tr.row-danger td.rownum{background:#ffd9df; color:var(--bad); font-weight:var(--w-semi)}
@@ -605,6 +621,7 @@
 
       <!-- 📊 앱 내장 시트(엑셀 없이) -->
       <div id="sheet-view">
+        <div class="copy-bar hidden" id="copy-bar"></div>
         <div class="sheet-bar">
           <span class="sheet-savedot">자동 저장됨</span>
           <span class="note">이 표가 작업 시트입니다. 완료 체크로 행 색이 바뀌고, 출고중지·반품접수를 체크하면 CS관리 탭으로 이동합니다.
@@ -820,6 +837,7 @@
 <script src="xlsx-lite.js?v=38"></script>
 <script src="biff.js?v=38"></script>
 <script src="xlsx-compat.js?v=38"></script>
+<script src="copy-helpers.js?v=38"></script>
 <script src="blacklist.js?v=38"></script>
 <script src="rules.js?v=38"></script>
 <script src="app.js?v=38"></script>
