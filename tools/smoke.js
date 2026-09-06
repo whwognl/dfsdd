@@ -32,7 +32,7 @@ const server = http.createServer((req, res) => {
   page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
 
-  await page.goto(`http://localhost:${PORT}/index.html`);
+  await page.goto(`http://localhost:${PORT}/${process.env.PAGE || "index.html"}`);
   await page.waitForTimeout(400);
   console.log("초기 화면:", (await page.textContent("#pane")).slice(0, 60).replace(/\s+/g, " "));
 
