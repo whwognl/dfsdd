@@ -3515,6 +3515,7 @@
     }
     return "";
   }
+  var SOURCE_NUMERIC = ["판매가", "배송비금액", "주문수량", "에누리", "구매가", "구매금액", "포인트"];
   function sourceRow(o) {
     var r = {};
     SOURCE_HEADERS.forEach(function (h) { r[h] = rawVal(o, h); });   // 원본 값 보존 (다른 양식에서 온 주문은 빈칸)
@@ -3573,7 +3574,14 @@
     if (!list.length) { toast("송장번호와 택배사가 입력된 주문이 없어요"); return; }
     var excludedN = list.filter(invoiceExcluded).length;
     var rows = sanitizeExportRows(list.map(sourceRow));
-    var aoa = [SOURCE_HEADERS.slice()].concat(rows.map(function (r) { return SOURCE_HEADERS.map(function (h) { return r[h] == null ? "" : r[h]; }); }));
+    // 원본에서 숫자였던 열(금액·수량)은 숫자로 되돌려 씀 — 코드·번호 열은 문자열 유지(앞자리 0·지수표기 방지)
+    var aoa = [SOURCE_HEADERS.slice()].concat(rows.map(function (r) {
+      return SOURCE_HEADERS.map(function (h) {
+        var v = r[h] == null ? "" : r[h];
+        if (SOURCE_NUMERIC.indexOf(h) !== -1 && /^-?\d{1,12}(\.\d+)?$/.test(String(v).trim())) return Number(v);
+        return v;
+      });
+    }));
     var stamp = dateStamp();
     if (type === "csv") {
       var ws = XLSX.utils.aoa_to_sheet(aoa);
