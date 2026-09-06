@@ -345,14 +345,18 @@
     o.category = cls.category;
     o.feeRate = cls.feeRate;
     var rate = effectiveRate(o.feeRate) / 100;
-    o.settlement = Math.round(o.paymentAmount * (1 - rate)); // 수수료 차감 후 정산예상
+    o.settlement = Math.round((toNumber(o.paymentAmount) + toNumber(o.shipFee)) * (1 - rate)); // 수수료 차감 후 정산예상(배송비 포함)
     var hasUnit = o.sourcingPrice != null && o.sourcingPrice !== "" && !isNaN(o.sourcingPrice);
     var hasTotal = toNumber(o.purchaseAmount) > 0;
     if (hasUnit || hasTotal) {
       // 단가×수량 + 배송비(주문당 1회) — 배송비가 수량배로 빠지지 않게. 단가가 없으면 소스의 구매금액(총액)을 그대로 씀
-      var cost = hasUnit ? toNumber(o.sourcingPrice) * (o.quantity || 1) + toNumber(o.sourcingShipping) : toNumber(o.purchaseAmount);
+      // 사용자가 총액(구매금액)을 적었으면 그 값이 진실. 없을 때만 단가×수량
+      var cost = hasTotal ? toNumber(o.purchaseAmount) : toNumber(o.sourcingPrice) * (o.quantity || 1) + toNumber(o.sourcingShipping);
       o.sourcingCost = cost;
-      o.margin = Math.round(o.settlement - cost - toNumber(o.csCost));
+      var gross = o.settlement - cost - toNumber(o.discount) - toNumber(o.csCost);
+      // 워크북의 순마진금액과 같은 식: VAT 포함 설정이면 부가세(1/11)를 뺀 순마진
+      o.margin = state.rules.vatIncluded ? Math.round(gross / 1.1) : Math.round(gross);
+      o.vatAmount = state.rules.vatIncluded ? Math.round(gross - o.margin) : 0;
       o.marginRate = o.paymentAmount ? Math.round(o.margin / o.paymentAmount * 1000) / 10 : null;
     } else {
       o.sourcingCost = null; o.margin = null; o.marginRate = null;
@@ -460,7 +464,8 @@
           // 헤더는 문자열 배열, 값은 객체배열로
           var rows = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
           var header = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" })[0] || [];
-          resolve({ rows: rows, header: header.map(function (h) { return String(h).trim(); }), sheetName: wb.SheetNames[0] || "" });
+          var fmt = (String(file.name || "").match(/\.([a-z0-9]+)$/i) || [, ""])[1].toLowerCase();
+          resolve({ rows: rows, header: header.map(function (h) { return String(h).trim(); }), sheetName: wb.SheetNames[0] || "", format: fmt });
         }).catch(reject);
       };
       fr.onerror = function () { reject(new Error("파일을 읽지 못했습니다")); };
@@ -472,9 +477,23 @@
    *  1단계: 모든 항목에 대해 정확/정규화 일치 (별칭 순서 = 우선순위)
    *  2단계: 아직 못 찾은 항목만 부분포함
    *  한 번 쓴 헤더는 다시 쓰지 않음 → '판매사이트 주문번호' 와 '주문번호　앞부분' 이 서로를 뺏지 않습니다. */
+  var PARTIAL_DENY = { orderNumber:["앞부분","구매","고유","매입"], productId:["마스터","판매자","업체"], productName:["코드","id","옵션명"] };
   function autoMap(header) {
     var map = {}, used = {};
     var normHeader = header.map(norm);
+    // 0) 수집 프로그램 36열 양식이면 위치로 확정 (헤더 이름이 조금 달라져도 자리로 잡음)
+    var hits = 0;
+    for (var h = 0; h < SOURCE_HEADERS.length && h < header.length; h++) if (normHeader[h] === norm(SOURCE_HEADERS[h])) hits++;
+    if (hits >= 30) {
+      var byHeader = {};
+      FIELDS.forEach(function (f) { map[f.key] = null; });
+      SOURCE_HEADERS.forEach(function (sh, idx) { byHeader[norm(sh)] = header[idx]; });
+      FIELDS.forEach(function (f) {
+        for (var a = 0; a < f.aliases.length; a++) { var hh = byHeader[norm(f.aliases[a])]; if (hh !== undefined) { map[f.key] = hh; delete byHeader[norm(f.aliases[a])]; break; } }
+      });
+      map.__format = "source36";
+      return map;
+    }
     FIELDS.forEach(function (f) {
       var found = null;
       for (var a = 0; a < f.aliases.length && !found; a++) {
@@ -486,15 +505,19 @@
       }
       map[f.key] = found;
     });
+    // 2) 부분포함 — 헤더가 별칭을 품는 방향만, 별칭 3자 이상, 거부어가 든 헤더는 제외
     FIELDS.forEach(function (f) {
       if (map[f.key]) return;
-      var found = null;
+      var found = null, deny = (PARTIAL_DENY[f.key] || []).map(norm);
       for (var b = 0; b < f.aliases.length && !found; b++) {
         var nb = norm(f.aliases[b]);
-        if (nb.length < 2) continue;
+        if (nb.length < 3) continue;
         for (var j = 0; j < header.length; j++) {
           if (used[j] || !normHeader[j]) continue;
-          if (normHeader[j].indexOf(nb) !== -1 || nb.indexOf(normHeader[j]) !== -1) { found = header[j]; used[j] = 1; break; }
+          if (normHeader[j].indexOf(nb) === -1) continue;
+          var denied = deny.some(function (d) { return normHeader[j].indexOf(d) !== -1; });
+          if (denied) continue;
+          found = header[j]; used[j] = 1; break;
         }
       }
       map[f.key] = found;
@@ -539,9 +562,10 @@
   /* =====================================================================
    * 주문 빌드
    * ===================================================================== */
+  function legacyKeyOf(o) { return [o.orderNumber, o.productId, o.option, o.recipient].join("¶"); }
   function keyOf(o) {
     if (o.uniqueNo) return "u¶" + String(o.uniqueNo).trim();   // 수집 프로그램의 고유번호가 가장 안정적
-    return [o.orderNumber, o.productId, o.option, o.recipient].join("¶");
+    return legacyKeyOf(o);
   }
 
   function buildOrders(rows, map) {
@@ -556,7 +580,7 @@
         id: "o" + idx + "_" + Math.abs(hash(String(on) + pn + idx)),
         orderDate:     pick(r, map.orderDate),
         orderNumber:   String(on).trim(),
-        productId:     String(pick(r, map.productId)).trim(),
+        productId:     asIdString(pick(r, map.productId)) || asIdString(pick(r, map.masterCode)) || asIdString(pick(r, map.sellerCode)),
         productName:   String(pn).trim(),
         option:        String(pick(r, map.option)).trim(),
         orderId:       "",
@@ -565,14 +589,14 @@
         paymentAmount: toNumber(pick(r, map.paymentAmount)),
         recipient:     String(pick(r, map.recipient)).trim(),
         phone:         String(pick(r, map.phone)).trim(),
-        zipcode:       String(pick(r, map.zipcode)).trim(),
+        zipcode:       normZip(pick(r, map.zipcode)),
         address:       String(pick(r, map.address)).trim(),
         raw:           Object.assign({}, r),
         sourcingLink:  String(pick(r, map.sourcingLink)).trim(),
         sourcingLinks: [],
         sourcingPrice: (function (v) { var n = toNumber(v); return String(v).trim() === "" || n <= 0 ? null : n; })(pick(r, map.sourcingPrice)),
         status: "pending",
-        invoiceNumber: String(pick(r, map.invoiceNumber)).replace(/\.0+$/, "").trim(),
+        invoiceNumber: asIdString(pick(r, map.invoiceNumber)),
         courier: courierFromAny(pick(r, map.courier)),
         csType: "",
         csStatus: "",
@@ -597,13 +621,14 @@
         point:         toNumber(pick(r, map.point)),
         orderedYn:     String(pick(r, map.orderedYn)).trim().toUpperCase(),
         note:          String(pick(r, map.note)).trim(),
-        uniqueNo:      String(pick(r, map.uniqueNo)).replace(/\.0+$/, "").trim()
+        uniqueNo:      asIdString(pick(r, map.uniqueNo))
       };
       o.manager = String(pick(r, map.manager)).trim();
-      o.orderId = String(pick(r, map.orderId)).replace(/\.0+$/, "").trim();
-      // 소스 파일에 이미 적힌 진행상태 반영: 주문여부 O = 구매완료, 송장번호 있음 = 송장입력완료
+      o.orderId = asIdString(pick(r, map.orderId));
+      // 소스 파일에 이미 적힌 진행상태 반영: 주문여부 O = 구매완료, 송장번호 있음 = 송장입력완료, X = 취소요청
       if (o.orderedYn === "O") o.status = "purchased";
       if (o.invoiceNumber && o.courier) o.status = "invoiced";
+      if (o.orderedYn === "X") o.csType = "취소요청";
       // 전화번호가 휴대폰 열에 없으면 일반전화 열로
       if (!o.phone && o.phone2) o.phone = o.phone2;
 
@@ -628,10 +653,11 @@
         }
       }
 
-      // 이전 진행상태 복원
-      var prev = states[keyOf(o)];
+      // 이전 진행상태 복원 (주문고유번호 키 → 옛 조합 키 순서). 파일이 더 진행된 상태면 파일을 따름
+      var prev = states[keyOf(o)] || states[legacyKeyOf(o)];
       if (prev) {
-        o.status = prev.status || o.status;
+        var rank = { pending:0, purchased:1, invoiced:2 };
+        if ((rank[prev.status] || 0) > (rank[o.status] || 0)) o.status = prev.status;
         if (prev.orderId != null) o.orderId = prev.orderId;
         if (prev.manager != null) o.manager = prev.manager;
         o.invoiceNumber = prev.invoiceNumber || o.invoiceNumber;
@@ -658,6 +684,20 @@
   }
 
   function pick(row, header) { return header && row[header] !== undefined ? row[header] : ""; }
+  // 숫자로 읽힌 ID(1.2E11, 12345.0)를 문자열로 복원
+  function asIdString(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "number") return Number.isSafeInteger(v) ? String(v) : v.toLocaleString("fullwide", { useGrouping:false });
+    var s = String(v).trim();
+    if (/^\d+(\.\d+)?[eE]\+?\d+$/.test(s)) { var n = Number(s); if (isFinite(n)) return Number.isSafeInteger(n) ? String(n) : n.toLocaleString("fullwide", { useGrouping:false }); }
+    return s.replace(/\.0+$/, "");
+  }
+  // 우편번호: 앞자리 0이 사라진 4자리는 5자리로 채움
+  function normZip(v) {
+    var s = asIdString(v);
+    if (/^\d{4}$/.test(s)) return "0" + s;
+    return s;
+  }
   function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; } return h; }
 
   /* =====================================================================
@@ -3042,7 +3082,7 @@
     r["결제일시"]          = firstFilled(o.paidAt, r["결제일시"]);
     r["카드정보"]          = firstFilled(o.card, r["카드정보"]);
     r["포인트"]            = firstFilled(o.point, r["포인트"]);
-    r["주문여부"]          = done ? "O" : (String(r["주문여부"] || o.orderedYn || "").toUpperCase() === "X" ? "X" : "");
+    r["주문여부"]          = done ? "O" : ((o.csType === "취소요청" || String(r["주문여부"] || o.orderedYn || "").toUpperCase() === "X") ? "X" : "");
     r["한줄메모"]          = firstFilled(o.note, r["한줄메모"]);
     if (excluded) {
       // 출고중지·반품·취소 건은 송장이 나가면 발송처리돼 버리므로 송장 칸을 비우고 메모로 표시
@@ -3071,7 +3111,8 @@
         toast(".xls 엔진이 없어 .xlsx 로 내보냅니다"); type = "xlsx";
       }
       var wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), todayKey());
+      var meta = state.ui.sourceMeta || {};
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), meta.sheetName || todayKey());
       XLSX.writeFile(wb, "주문서_송장_" + stamp + "." + type);
     }
     toast("소스 양식(36열) " + list.length + "건 내보냈어요" + (excludedN ? " · 출고중지/반품 " + excludedN + "건은 송장 칸을 비웠습니다" : ""));
@@ -3690,9 +3731,42 @@
     processOrderParsed(parsed);
   }
 
+  // 파일의 원본 열(수집값). 합칠 때 이 값들만 파일로 갱신하고 앱 입력값은 지킵니다
+  var SOURCE_ONLY_KEYS = ["orderDate","orderNumber","productId","productName","option","quantity","paymentAmount","recipient","phone","phone2","zipcode","address",
+    "collectedAt","site","sellerId","shipFee","masterCode","sellerCode","buyerName","deliveryMsg","uniqueNo","raw"];
+  function mergeOrders(incoming) {
+    var byKey = {};
+    state.orders.forEach(function (o) { if (o.uniqueNo) byKey["u¶" + o.uniqueNo] = o; });
+    var added = 0, updated = 0, rank = { pending:0, purchased:1, invoiced:2 };
+    incoming.forEach(function (n) {
+      var cur = n.uniqueNo ? byKey["u¶" + n.uniqueNo] : null;
+      if (!cur) { state.orders.push(n); added++; return; }
+      SOURCE_ONLY_KEYS.forEach(function (k) { cur[k] = n[k]; });
+      // 파일에만 적힌 앱 입력값은 비어 있을 때 채움, 진행 상태는 더 앞선 쪽
+      ["manager","vendor","account","purchaseAmount","orderId","paidAt","card","point","note","courier","invoiceNumber","sourcingLink","sourcingPrice"].forEach(function (k) {
+        if ((cur[k] === "" || cur[k] == null || cur[k] === 0) && n[k] !== "" && n[k] != null && n[k] !== 0) cur[k] = n[k];
+      });
+      if ((rank[n.status] || 0) > (rank[cur.status] || 0)) cur.status = n.status;
+      if (n.csType && !cur.csType) cur.csType = n.csType;
+      computeMargin(cur); updated++;
+    });
+    return { added:added, updated:updated };
+  }
   function finalizeOrders(parsed, map) {
-    state.orders = buildOrders(parsed.rows, map);
-    if (!state.orders.length) { toast("유효한 주문 행이 없어요"); return; }
+    var incoming = buildOrders(parsed.rows, map);
+    if (!incoming.length) { toast("유효한 주문 행이 없어요"); return; }
+    state.ui.sourceMeta = { sheetName: parsed.sheetName || "", format: parsed.format || "", header: parsed.header || [] };
+    var mergeBox = $("#opt-merge");
+    var canMerge = state.orders.length && incoming.some(function (o) { return o.uniqueNo; }) && (!mergeBox || mergeBox.checked);
+    if (canMerge) {
+      var res = mergeOrders(incoming);
+      persist(); showDashboard();
+      var riskM = riskOrders().length;
+      toast("기존 주문에 합쳤어요 — 새 " + res.added + "건 · 갱신 " + res.updated + "건" + (riskM ? " · 블랙리스트 위험 " + riskM + "건" : ""));
+      if (riskM) setTimeout(showRiskModal, 250);
+      return;
+    }
+    state.orders = incoming;
     persist();
     showDashboard();
     var riskN = riskOrders().length;
@@ -3895,7 +3969,10 @@
     $("#btn-settings").addEventListener("click", openSettings);
     $("#btn-reset").addEventListener("click", function () { reset(false); });
     $("#btn-export").addEventListener("click", function () { $("#modal-export").classList.remove("hidden"); });
-    var qi = $("#btn-quick-invoice"); if (qi) qi.addEventListener("click", function () { exportSource("xlsx"); });
+    var qi = $("#btn-quick-invoice"); if (qi) qi.addEventListener("click", function () {
+      var meta = state.ui.sourceMeta || {};
+      exportSource(meta.format === "xls" && window.BiffXls ? "xls" : "xlsx");   // 올린 파일이 .xls 면 .xls 로
+    });
 
     // 메모 모달
     var memoClose = $("#btn-memo-close"); if (memoClose) memoClose.addEventListener("click", closeMemo);

@@ -489,6 +489,7 @@
         <p>수집 프로그램에서 받은 <b>.xls / .xlsx / .csv</b> 를 끌어다 놓거나 클릭해서 선택하세요<br>(예전 쿠팡 발주서도 그대로 올릴 수 있습니다)</p>
         <button class="btn primary" type="button">파일 선택</button>
         <div class="dz-file" id="order-file"></div>
+        <label class="muted-note" style="display:block;margin-top:10px"><input type="checkbox" id="opt-merge" checked> 이미 있는 주문에 합치기 (주문고유번호 기준 · 해제하면 새 목록으로 교체)</label>
         <input type="file" id="in-order" class="hidden" accept=".xlsx,.xls,.csv" />
       </div>
       <div class="dropzone" id="dz-map">
@@ -790,7 +791,7 @@
           <button class="btn primary" id="btn-exp-src-xlsx">엑셀(.xlsx)</button>
           <button class="btn" id="btn-exp-src-xls">구형 엑셀(.xls)</button>
           <button class="btn" id="btn-exp-src-csv">CSV</button>
-          <label class="switch" style="margin-left:auto;font-size:12px"><input type="checkbox" id="exp-src-only-invoiced"> 송장 있는 건만</label>
+          <label class="switch" style="margin-left:auto;font-size:12px"><input type="checkbox" id="exp-src-only-invoiced" checked> 송장 있는 건만 (해제하면 전체)</label>
         </div>
       </div>
       <div class="set-sec">

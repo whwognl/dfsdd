@@ -77,7 +77,8 @@
       return r.map(function (v) {
         // 숫자처럼 보이면 숫자로 (SheetJS 의 CSV 파서와 같은 동작)
         var s = String(v).trim();
-        if (/^-?\d+(\.\d+)?$/.test(s) && s.length < 16) return parseFloat(s);
+        // 앞자리 0(우편번호)·12자리 이상(주문번호·송장번호)은 문자열로 지킴
+        if (/^-?(0|[1-9]\d{0,10})(\.\d+)?$/.test(s)) return parseFloat(s);
         return v;
       });
     });

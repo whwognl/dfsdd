@@ -38,7 +38,7 @@ const server = http.createServer((req, res) => {
 
   for (const src of files) {
     await page.goto(`http://localhost:${PORT}/index.html`);
-    await page.evaluate(() => localStorage.clear());
+    if (!(process.env.KEEP && files.indexOf(src) > 0)) await page.evaluate(() => localStorage.clear());   // KEEP=1: 두 번째 파일부터는 기존 주문에 합치기 검사
     // BL_SEED=1: 샘플 첫 행의 수령자/주소를 블랙리스트로 미리 등록해 경고 흐름을 검사
     if (process.env.BL_SEED && /\.xlsx$/i.test(src)) {
       require(path.join(ROOT, "xlsx-lite.js"));
