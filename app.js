@@ -113,8 +113,35 @@
     for (var i = 0; i < COURIER_CODES.length; i++) if (norm(COURIER_CODES[i].name) === n || COURIER_CODES[i].code.toLowerCase() === n) return COURIER_CODES[i].code;
     return String(name || "").trim();
   }
-  var CS_TYPES = ["", "출고중지요청", "반품접수", "교환문의", "배송문의", "취소요청", "기타CS"];
+  var CS_TYPES = ["", "출고중지요청", "반품접수", "차액협의", "택배미수령", "품절취소", "과배송", "교환문의", "배송문의", "취소요청", "기타CS"];
   var CS_STATUSES = ["", "접수", "처리중", "처리완료", "보류"];
+  /* CS 확장 모델 (실제 CS 기록 91건 분석 기반) — csType/csStatus/csCost/memoLog 는 그대로 두고 o.cs 를 덧붙입니다 */
+  var CS_WAIT = { me:"내 차례", customer:"고객 회신 대기", supplier:"구매처 대기", courier:"회수 대기", coupang:"쿠팡 대기" };
+  var CS_WAIT_ORDER = ["me", "customer", "supplier", "courier", "coupang"];
+  // 유형별 단계: [키, 라벨, 체크 뒤 기다리는 대상]
+  var CS_STEPS = {
+    "반품접수":    [["notify","고객 안내","supplier"],["coupang_return","쿠팡 반품접수 확인","supplier"],["supplier_claim","구매처 반품 신청(반품비 기록)","courier"],["pickup_tracking","회수 송장 등록","courier"],["picked_up","회수 완료","supplier"],["refunded","구매처 환불 확인","me"],["closed","종결",""]],
+    "차액협의":    [["proposed","금액 제시(문자)","customer"],["accepted","수락·계좌 회신","me"],["paid","입금 완료","me"],["closed","종결",""]],
+    "출고중지요청": [["stopped","쿠팡 출고중지 처리","supplier"],["supplier_cancel","구매처 취소 요청","supplier"],["cancelled","취소 확인","me"],["closed","종결",""]],
+    "택배미수령":  [["reported","미수령 신고","coupang"],["coupang_handled","쿠팡 처리 확인","supplier"],["supplier_claim","구매처 반품/취소 접수","supplier"],["refunded","환불 확인","me"],["closed","종결",""]],
+    "품절취소":    [["confirmed","구매처 품절 확인","me"],["cancelled","쿠팡 취소·환불","me"],["notified","고객 안내(품절 멘트)","me"],["closed","종결",""]],
+    "과배송":      [["supplier_pickup","구매처에 회수 요청","courier"],["picked_up","회수 완료","me"],["closed","종결",""]],
+    "_default":    [["notify","고객 안내","customer"],["resolved","조치 완료","me"],["closed","종결",""]]
+  };
+  var CS_REASONS = ["", "단순변심", "등급차이", "파손", "개봉·사용", "배송지연", "미수령", "품절", "반품기간초과", "오주문", "기타"];
+  var CS_CHANNELS = ["", "판매자센터", "문자", "전화", "기타"];
+  // 금액 장부 종류: [키, 라벨, 부호(+수입/−지출), 기본 금액]
+  var CS_LEDGER_KINDS = [["supplier_return_fee","구매처 반품비",-1,6000],["customer_compensation","고객 차액 입금",-1,3000],["customer_paid_shipping","고객 부담 배송비",1,12000],["reship_cost","재발송 비용",-1,0],["coupang_settlement","쿠팡 추가정산",1,0],["etc","기타",-1,0]];
+  // 자주 쓰는 멘트 — {상품명} {금액} 만 치환. 설정에서 편집 가능(rules.csTemplates)
+  var CS_TEMPLATES_DEFAULT = [
+    { key:"ack", title:"접수 응답", text:"안녕하세요 고객님, 불편을 드려 죄송합니다. 문의 주신 내용은 담당 부서에서 확인 후 빠르게 조치해 드리겠습니다." },
+    { key:"soldout", title:"품절 취소", text:"안녕하세요 고객님. 주문해 주신 [{상품명}]이 공급사 품절로 배송이 어려워 부득이 취소·환불 처리해 드렸습니다. 불편을 드려 진심으로 죄송합니다." },
+    { key:"need_phone", title:"실번호 요청(회수)", text:"안녕하세요 고객님. 반품 회수 접수를 위해 택배사에서 연락드릴 수 있는 휴대폰 번호(010)가 필요합니다. 회신 부탁드립니다." },
+    { key:"cancel_late", title:"출고 후 취소 불가", text:"안녕하세요 고객님. 주문하신 상품이 이미 배송이 시작되어 취소가 어렵습니다. 수령 후 반품 접수가 가능하며, 이 경우 왕복 배송비가 부과될 수 있습니다. 정상 수령을 원하시면 취소 요청을 철회해 주세요." },
+    { key:"partial", title:"차액 제안", text:"안녕하세요 고객님. 불편을 드려 죄송합니다. 반품 대신 {금액}원을 차액으로 보내드리는 방법은 어떠실까요? 괜찮으시면 입금 계좌를 회신해 주세요." },
+    { key:"pickup", title:"회수 안내", text:"안녕하세요 고객님. 반품 회수가 접수되었습니다. 택배 기사님이 방문하실 예정이니 상품을 포장해 두시면 됩니다. 회수가 확인되면 환불 처리됩니다." },
+    { key:"shipped", title:"출고 안내", text:"안녕하세요 고객님. 주문하신 [{상품명}]이 출고되었습니다. 배송 조회는 주문 내역에서 확인하실 수 있습니다." }
+  ];
   var INVOICE_HEADERS = ["번호","묶음배송번호","주문번호","택배사","운송장번호","분리배송 Y/N","분리배송 출고예정일","주문시 출고예정일","출고일(발송일)","주문일","등록상품명","등록옵션명","노출상품명(옵션명)","노출상품ID","옵션ID","최초등록옵션명","업체상품코드","바코드","결제액","배송비구분","배송비","도서산간 추가배송비","구매수(수량)","옵션판매가(판매단가)","구매자","구매자전화번호","수취인이름","수취인전화번호","우편번호","수취인 주소","배송메세지","상품별 추가메시지","주문자 추가메시지","배송완료일","구매확정일자","개인통관번호(PCCC)","통관용구매자전화번호","기타","결제위치"];
   var SHEET_LAYOUT_VERSION = 27;   // 27: 새 소스 양식 열(구매처·계정·구매금액·카드·포인트·메모) 추가
 
@@ -394,6 +421,26 @@
       .forEach(function (k) { if (o[k] == null) o[k] = ""; });
     ["shipFee","discount","purchaseAmount","point"].forEach(function (k) { if (o[k] == null || o[k] === "" || isNaN(o[k])) o[k] = 0; });
     if (o.courier) o.courier = courierFromAny(o.courier);
+    if (!o.cs || typeof o.cs !== "object") o.cs = {};
+    var c = o.cs;
+    if (c.openedAt == null) c.openedAt = "";
+    if (c.closedAt == null) c.closedAt = "";
+    if (c.reason == null) c.reason = "";
+    if (c.channel == null) c.channel = "";
+    if (!c.waitingOn) c.waitingOn = "me";
+    if (!c.steps || typeof c.steps !== "object") c.steps = {};
+    if (c.nextAction == null) c.nextAction = "";
+    if (c.nextActionAt == null) c.nextActionAt = "";
+    if (c.deadline == null) c.deadline = "";
+    if (!c.pickup || typeof c.pickup !== "object") c.pickup = {};
+    if (c.pickup.courier == null) c.pickup.courier = "";
+    if (c.pickup.trackingNo == null) c.pickup.trackingNo = "";
+    if (c.pickup.attempts == null) c.pickup.attempts = 0;
+    if (!c.supplierClaim || typeof c.supplierClaim !== "object") c.supplierClaim = {};
+    if (c.supplierClaim.orderNo == null) c.supplierClaim.orderNo = "";
+    if (c.supplierClaim.account == null) c.supplierClaim.account = "";
+    if (c.supplierClaim.expectedRefund == null) c.supplierClaim.expectedRefund = "";
+    if (!Array.isArray(c.ledger)) c.ledger = [];
     normalizeSourcingLinks(o);
     return o;
   }
@@ -1016,44 +1063,191 @@
     }).join("") + '</div>';
   }
   function csTypeChip(o) {
-    var cls = o.csType === "반품접수" ? "return" : "stop";
-    return '<span class="cs-chip ' + cls + '">' + esc(o.csType || "CS") + '</span>';
+    var t = o.csType || "CS";
+    var cls = t === "반품접수" ? "return" : (t === "출고중지요청" || t === "품절취소" || t === "취소요청") ? "stop" : "etc";
+    return '<span class="cs-chip ' + cls + '">' + esc(t) + '</span>';
+  }
+  function csStepsFor(o) { return CS_STEPS[o.csType] || CS_STEPS._default; }
+  // 장부 합계: 지출(−)은 차감으로, 수입(+)은 회수로. csCost = 지출 − 수입 (양수면 순지출)
+  function csLedgerTotal(o) {
+    return (o.cs && o.cs.ledger ? o.cs.ledger : []).reduce(function (sum, it) { return sum - toNumber(it.amount); }, 0);
+  }
+  function csSync(o) {
+    normalizeOrder(o);
+    if (o.cs.ledger.length) o.csCost = Math.round(csLedgerTotal(o));
+    var steps = csStepsFor(o), anyDone = false;
+    steps.forEach(function (st) { if (o.cs.steps[st[0]]) anyDone = true; });
+    if (o.cs.steps.closed) {
+      o.csStatus = "처리완료";
+      if (!o.cs.closedAt) o.cs.closedAt = dateStampHuman();
+    } else {
+      o.cs.closedAt = "";
+      if (o.csStatus !== "보류") o.csStatus = anyDone ? "처리중" : "접수";
+    }
+    computeMargin(o);
+  }
+  function csIsClosed(o) { return !!(o.cs && o.cs.steps && o.cs.steps.closed); }
+  function csBucket(o) {
+    if (csIsClosed(o)) return "done";
+    var due = o.cs.nextActionAt && o.cs.nextActionAt <= todayKey();
+    return (o.cs.waitingOn === "me" || due) ? "todo" : "waiting";
+  }
+  function csAutoMemo(o, text, kind) {
+    normalizeOrder(o);
+    o.memoLog.push({ at: dateStampHuman(), text: text, kind: kind || "step" });
+  }
+  // CS 시작(체크박스·툴바·CS탭 어디서든)
+  function csOpen(o, type, opts) {
+    opts = opts || {};
+    normalizeOrder(o);
+    var was = o.csType;
+    o.csType = type;
+    if (!o.cs.openedAt) o.cs.openedAt = dateStampHuman();
+    if (!was) { o.cs.steps = {}; o.cs.waitingOn = "me"; csAutoMemo(o, "CS 시작 — " + type, "step"); }
+    else if (was !== type) csAutoMemo(o, "유형 변경: " + was + " → " + type, "step");
+    if (o.csStatus !== "보류") o.csStatus = o.csStatus || "접수";
+    csSync(o); persist();
+    if (!opts.stay) { state.ui.csOpenId = o.id; state.ui.tab = "cs"; render(); }
+  }
+  function csTemplates() {
+    var t = state.rules.csTemplates;
+    return Array.isArray(t) && t.length ? t : CS_TEMPLATES_DEFAULT;
+  }
+  function csTemplateText(tpl, o) {
+    var amt = "";
+    if (o.cs && o.cs.ledger.length) {
+      var last = o.cs.ledger[o.cs.ledger.length - 1]; amt = comma(Math.abs(toNumber(last.amount)));
+    }
+    return String(tpl.text || "").replace(/\{상품명\}/g, o.productName || "").replace(/\{금액\}/g, amt || "0");
+  }
+  function csWaitChip(o) {
+    var w = o.cs.waitingOn || "me";
+    return '<span class="cs-wait ' + esc(w) + '">' + esc(CS_WAIT[w] || w) + '</span>';
+  }
+  function csSummaryLine(o) {
+    var steps = csStepsFor(o), done = 0;
+    steps.forEach(function (st) { if (o.cs.steps[st[0]]) done++; });
+    var next = "";
+    for (var i = 0; i < steps.length; i++) if (!o.cs.steps[steps[i][0]]) { next = steps[i][1]; break; }
+    var parts = [];
+    if (o.cs.nextAction) parts.push("다음: " + o.cs.nextAction + (o.cs.nextActionAt ? " (" + o.cs.nextActionAt.slice(5) + ")" : ""));
+    else if (next) parts.push("다음 단계: " + next);
+    if (o.cs.pickup.trackingNo) parts.push("회수 " + (o.cs.pickup.courier || "") + " " + o.cs.pickup.trackingNo + (o.cs.pickup.attempts ? " · 재회수 " + o.cs.pickup.attempts + "회" : ""));
+    if (toNumber(o.csCost)) parts.push("차감 " + won(o.csCost));
+    return '<span class="cs-progress">' + done + "/" + steps.length + '</span> ' + esc(parts.join(" · "));
+  }
+  function csItemHtml(o, open) {
+    var lastMemo = (o.memoLog || []).slice().reverse().filter(function (m) { return !m.kind || m.kind === "note"; })[0];
+    var due = o.cs.nextActionAt && o.cs.nextActionAt <= todayKey() && !csIsClosed(o);
+    return '<div class="cs-item' + (open ? " open" : "") + (due ? " due" : "") + (csIsClosed(o) ? " closed" : "") + '" data-id="' + esc(o.id) + '">' +
+      '<div class="cs-row" data-cs-toggle>' +
+        '<div class="cs-main">' + csTypeChip(o) + (o.cs.reason ? '<span class="cs-reason">' + esc(o.cs.reason) + '</span>' : '') +
+          '<b class="cs-name">' + esc(o.productName || "(상품명 없음)") + '</b>' + (o.option ? '<span class="cs-opt">' + esc(o.option) + '</span>' : '') +
+          '<span class="cs-meta">' + esc(o.recipient || "") + (o.buyerName && o.buyerName !== o.recipient ? ' <em title="구매자와 수령자가 다름">구매자 ' + esc(o.buyerName) + '</em>' : '') + ' · ' + esc(comma(o.paymentAmount)) + '원 · ' + esc((o.orderDate || "").slice(0, 10)) + '</span>' +
+        '</div>' +
+        '<div class="cs-sub">' + (csIsClosed(o) ? '<span class="cs-wait done">종결 ' + esc((o.cs.closedAt || "").slice(0, 10)) + '</span>' : csWaitChip(o)) + csSummaryLine(o) +
+          (lastMemo ? '<span class="cs-lastmemo" title="' + esc(lastMemo.text) + '">' + esc(lastMemo.text.slice(0, 60)) + '</span>' : '') + '</div>' +
+        '<div class="cs-actions"><button class="mini" data-cs-goto type="button">주문으로</button><button class="mini yellow" data-cs-memo type="button">+ 메모</button>' +
+          '<button class="mini" data-cs-expand type="button">' + (open ? "접기" : "펼치기") + '</button></div>' +
+      '</div>' +
+      (open ? csDetailHtml(o) : "") +
+    '</div>';
+  }
+  function csDetailHtml(o) {
+    var c = o.cs, steps = csStepsFor(o);
+    var typeChips = CS_TYPES.filter(Boolean).map(function (t) {
+      return '<button class="cs-typebtn' + (t === o.csType ? " on" : "") + '" data-cs-type="' + esc(t) + '" type="button">' + esc(t) + '</button>';
+    }).join("");
+    var stepsHtml = steps.map(function (st) {
+      return '<label class="cs-step' + (c.steps[st[0]] ? " done" : "") + '"><input type="checkbox" data-cs-step="' + esc(st[0]) + '"' + (c.steps[st[0]] ? " checked" : "") + '> ' + esc(st[1]) +
+        (st[2] ? '<small>→ ' + esc(CS_WAIT[st[2]]) + '</small>' : '') + '</label>';
+    }).join("");
+    var quick = CS_LEDGER_KINDS.slice(0, 3).map(function (k) {
+      return '<button class="mini" data-cs-ledger-add="' + esc(k[0]) + '" type="button">+ ' + esc(k[1]) + ' ' + (k[2] > 0 ? "+" : "−") + esc(comma(k[3])) + '</button>';
+    }).join("") + '<button class="mini" data-cs-ledger-add="etc" type="button">+ 기타</button>';
+    var ledger = c.ledger.map(function (it, i) {
+      return '<div class="cs-ledger-row" data-cs-ledger-idx="' + i + '">' +
+        '<select data-cs-lf="kind">' + CS_LEDGER_KINDS.map(function (k) { return '<option value="' + k[0] + '"' + (k[0] === it.kind ? " selected" : "") + '>' + esc(k[1]) + '</option>'; }).join("") + '</select>' +
+        '<input class="num-in" data-cs-lf="amount" inputmode="numeric" value="' + esc(toNumber(it.amount) ? (toNumber(it.amount) > 0 ? "+" : "") + comma(it.amount) : "") + '" placeholder="−6,000" title="지출은 음수, 수입은 양수">' +
+        '<label class="cs-settled"><input type="checkbox" data-cs-lf="settled"' + (it.settled ? " checked" : "") + '> ' + (toNumber(it.amount) > 0 ? "입금 확인" : "입금 완료") + '</label>' +
+        '<input data-cs-lf="note" value="' + esc(it.note || "") + '" placeholder="메모(계좌번호는 적지 마세요)">' +
+        '<button class="mini red" data-cs-ledger-del type="button">✕</button></div>';
+    }).join("");
+    var total = csLedgerTotal(o);
+    var tplBtns = csTemplates().map(function (t) { return '<button class="mini" data-cs-tpl="' + esc(t.key) + '" type="button" title="' + esc(t.text.slice(0, 80)) + '">' + esc(t.title) + '</button>'; }).join("");
+    return '<div class="cs-detail">' +
+      '<div class="cs-grid">' +
+        '<section><h4>유형 · 사유</h4><div class="cs-types">' + typeChips + '</div>' +
+          '<div class="cs-inline"><label>사유 <select data-cs-f="reason">' + CS_REASONS.map(function (r) { return '<option value="' + esc(r) + '"' + (r === c.reason ? " selected" : "") + '>' + esc(r || "—") + '</option>'; }).join("") + '</select></label>' +
+          '<label>접수 <select data-cs-f="channel">' + CS_CHANNELS.map(function (r) { return '<option value="' + esc(r) + '"' + (r === c.channel ? " selected" : "") + '>' + esc(r || "—") + '</option>'; }).join("") + '</select></label>' +
+          '<label>기다림 <select data-cs-f="waitingOn">' + CS_WAIT_ORDER.map(function (w) { return '<option value="' + w + '"' + (w === c.waitingOn ? " selected" : "") + '>' + esc(CS_WAIT[w]) + '</option>'; }).join("") + '</select></label>' +
+          '<label>상태 <select data-cs-k="csStatus">' + CS_STATUSES.filter(Boolean).map(function (st) { return '<option value="' + esc(st) + '"' + (st === o.csStatus ? " selected" : "") + '>' + esc(st) + '</option>'; }).join("") + '</select></label></div>' +
+        '</section>' +
+        '<section><h4>단계</h4><div class="cs-steps">' + stepsHtml + '</div>' +
+          '<div class="cs-inline"><button class="mini" data-cs-coupang type="button">쿠팡확인요청 접수</button>' + (o.csType === "차액협의" ? '<button class="mini" data-cs-to-return type="button">거절 → 반품으로 전환</button>' : '') +
+          (o.csType === "출고중지요청" ? '<button class="mini" data-cs-to-return type="button">이미 출고됨 → 반품으로 전환</button>' : '') + '</div></section>' +
+        '<section><h4>금액 장부 <small>합계 ' + (total ? (total > 0 ? "차감 " : "회수 +") + esc(comma(Math.abs(total))) + "원" : "없음") + ' · 순마진에 반영</small></h4>' +
+          '<div class="cs-inline">' + quick + '</div><div class="cs-ledger">' + (ledger || '<div class="muted-note">아직 금액이 없습니다. 위 버튼으로 반품비·차액을 기록하세요.</div>') + '</div></section>' +
+        '<section><h4>회수 송장</h4><div class="cs-inline">' +
+          '<select data-cs-p="courier"><option value="">택배사</option>' + COURIERS.map(function (cc) { return '<option' + (cc === c.pickup.courier ? " selected" : "") + '>' + esc(cc) + '</option>'; }).join("") + '</select>' +
+          '<input data-cs-p="trackingNo" value="' + esc(c.pickup.trackingNo) + '" placeholder="회수 송장번호" style="min-width:160px">' +
+          '<button class="mini" data-cs-pickup-fail type="button">회수 안됨 (' + (c.pickup.attempts || 0) + '회)</button></div>' +
+          '<h4 style="margin-top:10px">구매처 접수</h4><div class="cs-inline">' +
+          '<input data-cs-s="orderNo" value="' + esc(c.supplierClaim.orderNo) + '" placeholder="반품/취소 접수 주문번호(원주문과 다르면)" style="min-width:200px">' +
+          '<input data-cs-s="account" value="' + esc(c.supplierClaim.account) + '" placeholder="계정 별칭" style="width:120px">' +
+          '<input class="num-in" data-cs-s="expectedRefund" inputmode="numeric" value="' + esc(c.supplierClaim.expectedRefund ? comma(c.supplierClaim.expectedRefund) : "") + '" placeholder="환불 예정액" style="width:110px"></div></section>' +
+        '<section><h4>다음 조치</h4><div class="cs-inline">' +
+          '<input data-cs-f="nextAction" value="' + esc(c.nextAction) + '" placeholder="예: 아침에 문자 / 재회수 신청" style="min-width:220px">' +
+          '<input type="date" data-cs-f="nextActionAt" value="' + esc(c.nextActionAt) + '">' +
+          '<button class="mini" data-cs-due="0" type="button">오늘</button><button class="mini" data-cs-due="1" type="button">내일</button><button class="mini" data-cs-due="3" type="button">3일 후</button>' +
+          '<label class="muted-note">보관/반품 기한 <input type="date" data-cs-f="deadline" value="' + esc(c.deadline) + '"></label></div>' +
+          '<h4 style="margin-top:10px">복사 · 멘트</h4><div class="cs-inline">' +
+          '<button class="mini" data-cs-copy="name" type="button">이름</button><button class="mini red" data-cs-copy="custphone" type="button" title="회수 접수용 — 고객 실제 번호가 복사됩니다">회수용 고객번호</button>' +
+          '<button class="mini" data-cs-copy="addr" type="button">주소 전체</button><button class="mini" data-cs-copy="orderno" type="button">판매사이트 주문번호</button>' +
+          '<span class="muted-note" style="margin-left:6px">멘트:</span>' + tplBtns + '<button class="mini" data-cs-tpl-edit type="button">편집</button></div></section>' +
+      '</div>' +
+      '<div class="cs-timeline"><div class="cs-timeline-head"><b>기록</b><textarea data-cs-newmemo placeholder="메모를 적고 Enter (Shift+Enter 줄바꿈)"></textarea></div>' +
+        (o.memoLog.length ? o.memoLog.slice().reverse().map(function (m, i) {
+          var idx = o.memoLog.length - 1 - i;
+          return '<div class="cs-log ' + esc(m.kind || "note") + '"><span class="t">' + esc(m.at || "") + '</span><span class="x">' + esc(m.text || "") + '</span><button class="memo-del" data-cs-memo-del="' + idx + '" type="button">삭제</button></div>';
+        }).join("") : '<div class="muted-note">아직 기록이 없습니다.</div>') + '</div>' +
+      '<div class="cs-foot"><button class="mini red" data-cs-clear type="button">CS 해제 (주문관리로)</button></div>' +
+    '</div>';
   }
   function renderCsPane() {
     var pane = $("#pane-cs"); if (!pane) return;
     var list = csOrders();
-    var stop = list.filter(function (o) { return o.csType === "출고중지요청"; }).length;
-    var ret = list.filter(function (o) { return o.csType === "반품접수"; }).length;
-    var cost = list.reduce(function (sum, o) { return sum + toNumber(o.csCost); }, 0);
+    list.forEach(function (o) { normalizeOrder(o); });
+    var counts = { total:list.length, done:0, todo:0, waiting:0 };
+    var byWait = {};
+    var cost = 0;
+    list.forEach(function (o) {
+      var b = csBucket(o); counts[b]++;
+      if (b !== "done") byWait[o.cs.waitingOn] = (byWait[o.cs.waitingOn] || 0) + 1;
+      cost += toNumber(o.csCost);
+    });
     var head = '<div class="panel-head"><h2>CS관리</h2><div class="spacer"></div>' +
-      '<span class="cs-pill">전체 ' + list.length + '건</span><span class="cs-pill stop">출고중지 ' + stop + '건</span><span class="cs-pill ret">반품 ' + ret + '건</span><span class="cs-pill">CS차감 ' + won(cost) + '</span></div>' +
-      '<div class="info-banner compact">주문관리에서 <b>출고중지/반품접수</b>를 체크하면 이 탭으로 이동합니다. 왼쪽 체크를 해제하면 일반 주문관리 시트로 돌아갑니다.</div>';
+      '<span class="cs-pill">전체 ' + counts.total + '</span>' +
+      CS_WAIT_ORDER.map(function (w) { return byWait[w] ? '<span class="cs-pill ' + w + '">' + esc(CS_WAIT[w]) + ' ' + byWait[w] + '</span>' : ""; }).join("") +
+      '<span class="cs-pill">종결 ' + counts.done + '</span><span class="cs-pill">CS차감 ' + won(cost) + '</span></div>';
     if (!list.length) {
-      pane.innerHTML = head + '<div class="soon"><h3>진행 중인 CS가 없습니다</h3><p>주문관리에서 출고중지 또는 반품접수를 체크하면 여기에 모입니다.</p></div>';
+      pane.innerHTML = head + '<div class="soon"><h3>진행 중인 CS가 없습니다</h3><p>주문관리에서 출고중지·반품접수를 체크하거나, 행을 고른 뒤 툴바의 [CS ▾]에서 차액협의·미수령·품절취소 등을 고르면 여기에 모입니다.</p></div>';
       return;
     }
-    var rows = list.map(function (o) {
-      normalizeOrder(o);
-      var margin = o.margin == null ? "—" : won(o.margin) + (o.marginRate != null ? " (" + o.marginRate + "%)" : "");
-      return '<tr data-id="' + esc(o.id) + '">' +
-        '<td class="cs-active"><label class="sheet-check"><input type="checkbox" data-cs-active checked /><span></span></label></td>' +
-        '<td>' + csTypeChip(o) + '</td>' +
-        '<td>' + esc(o.orderDate || "") + '</td>' +
-        '<td>' + esc(o.orderNumber || "") + '</td>' +
-        '<td class="cs-product">' + esc(o.productName || "") + '</td>' +
-        '<td>' + esc(o.option || "") + '</td>' +
-        '<td class="num">' + esc(comma(o.paymentAmount)) + '</td>' +
-        '<td class="num">' + (o.sourcingPrice != null ? esc(comma(o.sourcingPrice)) : "—") + '</td>' +
-        '<td class="num ' + (o.margin != null ? (o.margin >= 0 ? "pos" : "neg") : "") + '">' + esc(margin) + '</td>' +
-        '<td class="num"><input data-cs-k="csCost" inputmode="numeric" value="' + esc(moneyInputValue(o.csCost)) + '" placeholder="0" /></td>' +
-        '<td><select data-cs-k="csStatus">' + CS_STATUSES.map(function (s) {
-          return '<option value="' + esc(s) + '"' + (s === (o.csStatus || "") ? " selected" : "") + '>' + esc(s || "상태") + '</option>';
-        }).join("") + '</select></td>' +
-        '<td>' + csMemoPreview(o) + '</td>' +
-        '<td class="cs-actions"><button class="mini yellow" data-cs-memo type="button">+ 메모</button><button class="mini" data-cs-autofill type="button">입력준비</button><button class="mini red" data-cs-clear type="button">해제</button></td>' +
-      '</tr>';
-    }).join("");
-    pane.innerHTML = head + '<div class="data-scroll cs-scroll"><table class="data cs-table"><thead><tr><th>유지</th><th>유형</th><th>주문일</th><th>주문번호</th><th>상품명</th><th>옵션</th><th class="num">결제액</th><th class="num">매입가</th><th class="num">순마진</th><th class="num">CS차감</th><th>처리상태</th><th>메모</th><th>액션</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    var openId = state.ui.csOpenId;
+    function section(title, items, cls, collapsed) {
+      if (!items.length) return "";
+      var body = items.map(function (o) { return csItemHtml(o, o.id === openId); }).join("");
+      return '<div class="cs-section ' + cls + (collapsed ? " collapsed" : "") + '"><div class="cs-section-head" data-cs-section><b>' + esc(title) + '</b><span>' + items.length + '건</span></div><div class="cs-section-body">' + body + '</div></div>';
+    }
+    var todo = list.filter(function (o) { return csBucket(o) === "todo"; });
+    var waiting = list.filter(function (o) { return csBucket(o) === "waiting"; }).sort(function (a, b) { return CS_WAIT_ORDER.indexOf(a.cs.waitingOn) - CS_WAIT_ORDER.indexOf(b.cs.waitingOn); });
+    var done = list.filter(function (o) { return csBucket(o) === "done"; });
+    pane.innerHTML = head +
+      section("오늘 할 일 — 내 차례이거나 조치일이 된 건", todo, "todo") +
+      section("기다리는 중 — 고객·구매처·택배·쿠팡", waiting, "waiting") +
+      section("종결", done, "done", !state.ui.csShowDone) +
+      (!todo.length && !waiting.length ? '<div class="ops-note">진행 중인 CS가 없습니다. 종결 ' + done.length + '건.</div>' : "");
   }
 
   function isSameDay(a, b) {
@@ -1122,6 +1316,7 @@
   // 어디서든 한 번에: 주문관리 탭을 열고 그 주문만 검색해 보여줌
   function gotoOrder(id) {
     var o = findOrder(id); if (!o) return;
+    if (isCsOrder(o)) { state.ui.showCs = true; var cb = $("#f-showcs"); if (cb) cb.checked = true; }
     state.ui.q = o.orderNumber || o.uniqueNo || o.recipient || "";
     state.ui.status = "all"; state.ui.tab = "orders";
     persist(); showDashboard();
@@ -2184,7 +2379,7 @@
   function sheetFiltered() {
     var q = norm(state.ui.q);
     var list = state.orders.filter(function (o) {
-      if (isCsOrder(o)) return false;
+      if (isCsOrder(o) && !state.ui.showCs) return false;
       if (state.ui.status !== "all" && o.status !== state.ui.status) return false;
       if (q) {
         var hay = norm(o.productName + o.recipient + o.orderNumber + o.option + o.address + csLabel(o) +
@@ -2486,19 +2681,13 @@
         if (!nextDone) { ao.invoiceNumber = ao.invoiceNumber || ""; }
         computeMargin(ao); persist(); render();
       } else if (act === "stop") {
-        if (actEl.checked) {
-          ao.csType = "출고중지요청"; ao.csStatus = ao.csStatus || "접수";
-        } else if (ao.csType === "출고중지요청") {
-          ao.csType = ""; ao.csStatus = "";
-        }
+        if (actEl.checked) { csOpen(ao, "출고중지요청", { stay:true }); }
+        else if (ao.csType === "출고중지요청") { ao.csType = ""; ao.csStatus = ""; }
         computeMargin(ao); persist(); render();
         toast(actEl.checked ? "CS관리로 이동했어요 (출고중지)" : "출고중지요청을 취소했어요");
       } else if (act === "return") {
-        if (actEl.checked) {
-          ao.csType = "반품접수"; ao.csStatus = ao.csStatus || "접수";
-        } else if (ao.csType === "반품접수") {
-          ao.csType = ""; ao.csStatus = "";
-        }
+        if (actEl.checked) { csOpen(ao, "반품접수", { stay:true }); }
+        else if (ao.csType === "반품접수") { ao.csType = ""; ao.csStatus = ""; }
         computeMargin(ao); persist(); render();
         toast(actEl.checked ? "CS관리로 이동했어요 (반품접수)" : "반품접수를 취소했어요");
       } else if (act === "memo") {
@@ -2568,56 +2757,167 @@
   }
 
   function csRowOrder(el) {
-    var tr = el && el.closest && el.closest("tr[data-id]");
-    return tr ? findOrder(tr.getAttribute("data-id")) : null;
+    var it = el && el.closest && el.closest(".cs-item[data-id]");
+    return it ? findOrder(it.getAttribute("data-id")) : null;
   }
   function clearCsOrder(o) {
     if (!o) return;
-    o.csType = "";
-    o.csStatus = "";
-    computeMargin(o);
-    persist();
-    render();
-    toast("CS 해제 — 주문관리로 돌아갔어요");
+    function doClear() {
+      o.csType = ""; o.csStatus = ""; o.cs.steps = {}; o.cs.waitingOn = "me";
+      computeMargin(o); persist(); render();
+      toast("CS 해제 — 주문관리로 돌아갔어요");
+    }
+    if (o.cs && o.cs.ledger.length && toNumber(o.csCost)) {
+      showConfirm({ title:"CS 해제", body:"차감액 " + won(o.csCost) + "이 기록돼 있습니다. 해제하면 순마진에서 빠지지 않습니다.\n그래도 해제할까요?", okLabel:"해제", danger:true }, doClear);
+    } else doClear();
+  }
+  function csCopy(o, what) {
+    if (what === "name") copyText(o.recipient, "이름");
+    else if (what === "custphone") copyText(o.phone || o.phone2, "회수용 고객 번호");
+    else if (what === "addr") copyText(o.address, "주소");
+    else if (what === "orderno") copyText(o.orderNumber, "주문번호");
   }
   function onCsClick(e) {
-    var btn = e.target.closest("[data-cs-clear],[data-cs-memo],[data-cs-autofill]");
-    if (!btn) return;
-    var o = csRowOrder(btn); if (!o) return;
-    if (btn.matches("[data-cs-clear]")) clearCsOrder(o);
-    else if (btn.matches("[data-cs-memo]")) openMemo(o.id);
-    else if (btn.matches("[data-cs-autofill]")) copyAutofill(o);
+    var t = e.target;
+    if (t.closest("[data-cs-section]")) {
+      var sec = t.closest(".cs-section");
+      if (sec && sec.classList.contains("done")) { state.ui.csShowDone = !state.ui.csShowDone; renderCsPane(); }
+      return;
+    }
+    var o = csRowOrder(t); if (!o) return;
+    normalizeOrder(o);
+    if (t.closest("[data-cs-expand]") || (t.closest("[data-cs-toggle]") && !t.closest("button,input,select,a"))) {
+      state.ui.csOpenId = state.ui.csOpenId === o.id ? "" : o.id; renderCsPane(); return;
+    }
+    if (t.closest("[data-cs-goto]")) { gotoOrder(o.id); return; }
+    if (t.closest("[data-cs-memo]")) { openMemo(o.id); return; }
+    if (t.closest("[data-cs-clear]")) { clearCsOrder(o); return; }
+    var typeBtn = t.closest("[data-cs-type]");
+    if (typeBtn) { csOpen(o, typeBtn.getAttribute("data-cs-type"), { stay:true }); renderCsPane(); return; }
+    var add = t.closest("[data-cs-ledger-add]");
+    if (add) {
+      var kind = add.getAttribute("data-cs-ledger-add");
+      var def = CS_LEDGER_KINDS.filter(function (k) { return k[0] === kind; })[0] || CS_LEDGER_KINDS[5];
+      o.cs.ledger.push({ at: dateStampHuman(), kind: kind, amount: def[2] * def[3], settled: false, note: "" });
+      csAutoMemo(o, def[1] + " " + (def[2] > 0 ? "+" : "−") + comma(def[3]) + "원 기록", "money");
+      csSync(o); persist(); renderCsPane(); return;
+    }
+    var del = t.closest("[data-cs-ledger-del]");
+    if (del) {
+      var row = del.closest("[data-cs-ledger-idx]"); o.cs.ledger.splice(parseInt(row.getAttribute("data-cs-ledger-idx"), 10), 1);
+      if (!o.cs.ledger.length) o.csCost = 0;
+      csSync(o); persist(); renderCsPane(); return;
+    }
+    if (t.closest("[data-cs-pickup-fail]")) {
+      o.cs.pickup.attempts = (o.cs.pickup.attempts || 0) + 1;
+      o.cs.steps.picked_up = false; o.cs.waitingOn = "courier";
+      if (!o.cs.nextAction) { o.cs.nextAction = "재회수 신청"; o.cs.nextActionAt = todayKey(); }
+      csAutoMemo(o, "회수 안됨 — 재회수 필요 (" + o.cs.pickup.attempts + "회차)", "step");
+      csSync(o); persist(); renderCsPane(); return;
+    }
+    if (t.closest("[data-cs-coupang]")) {
+      o.cs.waitingOn = "coupang"; o.cs.coupangRequest = { filedAt: dateStampHuman() };
+      csAutoMemo(o, "쿠팡확인요청 접수", "step"); csSync(o); persist(); renderCsPane(); return;
+    }
+    if (t.closest("[data-cs-to-return]")) { csOpen(o, "반품접수", { stay:true }); renderCsPane(); return; }
+    var due = t.closest("[data-cs-due]");
+    if (due) {
+      var d = new Date(); d.setDate(d.getDate() + parseInt(due.getAttribute("data-cs-due"), 10));
+      var p2 = function (n) { return ("0" + n).slice(-2); };
+      o.cs.nextActionAt = d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate());
+      persist(); renderCsPane(); return;
+    }
+    var cp = t.closest("[data-cs-copy]");
+    if (cp) { csCopy(o, cp.getAttribute("data-cs-copy")); return; }
+    var tpl = t.closest("[data-cs-tpl]");
+    if (tpl) {
+      var key = tpl.getAttribute("data-cs-tpl");
+      var tp = csTemplates().filter(function (x) { return x.key === key; })[0];
+      if (tp) { copyText(csTemplateText(tp, o), "멘트(" + tp.title + ")"); csAutoMemo(o, "멘트 발송: " + tp.title, "contact"); persist(); }
+      return;
+    }
+    if (t.closest("[data-cs-tpl-edit]")) {
+      var cur = csTemplates().map(function (x) { return x.key + " | " + x.title + " | " + x.text; }).join("\n");
+      showTextareaModal({ title:"CS 멘트 편집", body:"한 줄에 하나: 키 | 제목 | 본문. {상품명} {금액} 은 자동으로 바뀝니다. 고객 정보·계좌번호는 넣지 마세요.", placeholder:cur, okLabel:"저장" }, function (text) {
+        var list = String(text || "").split("\n").map(function (l) {
+          var m = l.split("|"); if (m.length < 3) return null;
+          return { key: m[0].trim(), title: m[1].trim(), text: m.slice(2).join("|").trim() };
+        }).filter(Boolean);
+        if (list.length) { state.rules.csTemplates = list; saveRules(); renderCsPane(); toast("멘트 " + list.length + "개 저장"); }
+      });
+      var ta = document.querySelector(".modal-bg [data-ta]"); if (ta) ta.value = cur;
+      return;
+    }
+    var mdel = t.closest("[data-cs-memo-del]");
+    if (mdel) { o.memoLog.splice(parseInt(mdel.getAttribute("data-cs-memo-del"), 10), 1); persist(); renderCsPane(); return; }
   }
   function onCsChange(e) {
     var el = e.target;
     var o = csRowOrder(el); if (!o) return;
-    if (el.matches("[data-cs-active]")) {
-      if (!el.checked) clearCsOrder(o);
-      return;
+    normalizeOrder(o);
+    var step = el.getAttribute("data-cs-step");
+    if (step) {
+      o.cs.steps[step] = el.checked;
+      var def = csStepsFor(o).filter(function (st) { return st[0] === step; })[0];
+      if (el.checked && def) { if (def[2]) o.cs.waitingOn = def[2]; csAutoMemo(o, def[1] + " ✓", "step"); }
+      if (step === "closed" && el.checked) { o.cs.waitingOn = "me"; o.cs.nextAction = ""; o.cs.nextActionAt = ""; }
+      csSync(o); persist(); renderCsPane(); renderTabs(); return;
     }
-    if (el.matches("select[data-cs-k]")) {
-      o[el.getAttribute("data-cs-k")] = el.value;
-      computeMargin(o);
-      persist();
-      renderCsPane();
-      renderSummary();
+    if (el.matches("[data-cs-k]")) { o[el.getAttribute("data-cs-k")] = el.value; computeMargin(o); persist(); renderCsPane(); return; }
+    if (el.matches("select[data-cs-f]")) { o.cs[el.getAttribute("data-cs-f")] = el.value; csSync(o); persist(); renderCsPane(); return; }
+    if (el.matches("[data-cs-f][type=date]")) { o.cs[el.getAttribute("data-cs-f")] = el.value; persist(); renderCsPane(); return; }
+    if (el.matches("select[data-cs-p]")) { o.cs.pickup.courier = el.value; persist(); return; }
+    var lf = el.getAttribute("data-cs-lf");
+    if (lf) {
+      var row = el.closest("[data-cs-ledger-idx]"); var it = o.cs.ledger[parseInt(row.getAttribute("data-cs-ledger-idx"), 10)]; if (!it) return;
+      if (lf === "kind") {
+        it.kind = el.value;
+        var def2 = CS_LEDGER_KINDS.filter(function (k) { return k[0] === it.kind; })[0];
+        if (def2 && (!it.amount || Math.sign(toNumber(it.amount)) !== def2[2])) it.amount = def2[2] * Math.abs(toNumber(it.amount) || def2[3]);
+      } else if (lf === "settled") { it.settled = el.checked; if (el.checked) csAutoMemo(o, (toNumber(it.amount) > 0 ? "입금 확인" : "입금 완료") + " " + comma(Math.abs(toNumber(it.amount))) + "원", "money"); }
+      csSync(o); persist(); renderCsPane(); return;
     }
   }
   function onCsInput(e) {
     var el = e.target;
-    if (!el.matches("input[data-cs-k]")) return;
     var o = csRowOrder(el); if (!o) return;
-    var key = el.getAttribute("data-cs-k");
-    if (key === "csCost") o.csCost = toNumber(el.value);
-    else o[key] = el.value;
-    computeMargin(o);
-    renderSummary();
-    renderOrdersDashboard();
-    schedulePersist();
+    normalizeOrder(o);
+    var lf = el.getAttribute("data-cs-lf");
+    if (lf === "amount") {
+      var row = el.closest("[data-cs-ledger-idx]"); var it = o.cs.ledger[parseInt(row.getAttribute("data-cs-ledger-idx"), 10)]; if (!it) return;
+      var raw = String(el.value).trim(); var n = toNumber(raw);
+      if (raw && raw.charAt(0) !== "+" && raw.charAt(0) !== "-") { var def = CS_LEDGER_KINDS.filter(function (k) { return k[0] === it.kind; })[0]; n = (def ? def[2] : -1) * Math.abs(n); }
+      it.amount = n; csSync(o); schedulePersist();
+      var head = el.closest(".cs-detail") && el.closest(".cs-detail").querySelector("section:nth-child(3) h4 small");
+      var total = csLedgerTotal(o); if (head) head.textContent = "합계 " + (total ? (total > 0 ? "차감 " : "회수 +") + comma(Math.abs(total)) + "원" : "없음") + " · 순마진에 반영";
+      return;
+    }
+    if (lf === "note") { var r2 = el.closest("[data-cs-ledger-idx]"); var it2 = o.cs.ledger[parseInt(r2.getAttribute("data-cs-ledger-idx"), 10)]; if (it2) { it2.note = el.value; schedulePersist(); } return; }
+    if (el.matches("input[data-cs-f]") && el.type !== "date") { o.cs[el.getAttribute("data-cs-f")] = el.value; schedulePersist(); return; }
+    if (el.matches("input[data-cs-p]")) { o.cs.pickup.trackingNo = el.value.trim(); if (el.value.trim()) o.cs.steps.pickup_tracking = true; schedulePersist(); return; }
+    var sf = el.getAttribute("data-cs-s");
+    if (sf) { o.cs.supplierClaim[sf] = sf === "expectedRefund" ? toNumber(el.value) : el.value; schedulePersist(); return; }
+  }
+  function onCsKey(e) {
+    var el = e.target;
+    if (!el.matches || !el.matches("[data-cs-newmemo]")) return;
+    if (e.key !== "Enter" || e.shiftKey) return;
+    e.preventDefault();
+    var o = csRowOrder(el); if (!o) return;
+    var v = el.value.trim(); if (!v) return;
+    normalizeOrder(o);
+    o.memoLog.push({ at: dateStampHuman(), text: v, kind: "note" });
+    persist(); renderCsPane();
+    var again = $('#pane-cs .cs-item[data-id="' + o.id + '"] [data-cs-newmemo]'); if (again) again.focus();
   }
   function onCsFocusOut(e) {
     var el = e.target;
-    if (el.matches('input[data-cs-k="csCost"]')) formatMoneyInput(el);
+    if (el.matches && el.matches('input[data-cs-lf="amount"]')) {
+      var o = csRowOrder(el); if (!o) return;
+      var row = el.closest("[data-cs-ledger-idx]"); var it = o.cs.ledger[parseInt(row.getAttribute("data-cs-ledger-idx"), 10)];
+      if (it) el.value = toNumber(it.amount) ? (toNumber(it.amount) > 0 ? "+" : "") + comma(it.amount) : "";
+      renderCsPane();
+    }
   }
 
   function addCustomColumn() {
@@ -2956,6 +3256,7 @@
       '<select class="copy-sel" data-copy-preset title="순차 복사 순서 (구매처별로 기억)">' + Object.keys(SEQ_PRESETS).map(function (k) {
         return '<option value="' + k + '"' + (k === presetKey ? " selected" : "") + '>' + esc(SEQ_PRESETS[k].label) + '</option>';
       }).join("") + '</select>' +
+      '<select class="copy-sel" data-copy-cs title="이 주문을 CS로 보냅니다"><option value="">CS ▾</option>' + CS_TYPES.filter(Boolean).map(function (t) { return '<option value="' + esc(t) + '"' + (o.csType === t ? " selected" : "") + '>' + esc(t) + '</option>'; }).join("") + '</select>' +
       '<button class="mini blue" data-copy-autofill type="button" title="자동입력용 데이터를 클립보드에 넣고, 구매링크가 있으면 새 탭으로 엽니다">입력준비 ↗</button>' +
       (o.status === "pending" ? '<button class="mini green" data-copy-done type="button" title="주문여부 O · 결제일시 기록">구매완료 표시</button>' : '<span class="thin-badge best-badge">' + esc(statusLabel(o.status)) + '</span>');
   }
@@ -3012,6 +3313,7 @@
     var el = e.target;
     if (el.matches("[data-copy-seq]")) { state.ui.seq = { on: el.checked, idx: 0 }; renderCopyBar(); return; }
     if (el.matches("[data-copy-phonestyle]")) { state.rules.phoneStyle = el.value; saveRules(); renderCopyBar(); return; }
+    if (el.matches("[data-copy-cs]")) { if (el.value) { csOpen(o, el.value); toast("CS관리로 보냈어요 (" + el.value + ")"); } return; }
     if (el.matches("[data-copy-preset]")) {
       if (o.vendor) state.rules.seqPresetByVendor[o.vendor] = el.value;
       else state.rules.seqPresetByVendor[""] = el.value;
@@ -3172,8 +3474,8 @@
   }
 
   function invoiceExcluded(o) {
-    // 출고중지·반품 주문은 송장 업로드에서 제외 — 올리면 발송처리되어 취소가 막히는 사고 방지
-    return o.csType === "출고중지요청" || o.csType === "반품접수" || o.csType === "취소요청";
+    // 출고중지·반품·취소·품절 주문은 송장 업로드에서 제외 — 올리면 발송처리되어 취소가 막히는 사고 방지
+    return o.csType === "출고중지요청" || o.csType === "반품접수" || o.csType === "취소요청" || o.csType === "품절취소";
   }
   function exportInvoice(type) {
     var ready = state.orders.filter(function (o) { return o.invoiceNumber && o.courier; });
@@ -4065,6 +4367,8 @@
     $("#f-status").addEventListener("change", function () { state.ui.status = this.value; saveUiOnly(); render(); });
     $("#f-sort").addEventListener("change", function () { state.ui.sort = this.value; saveUiOnly(); render(); });
     var fg = $("#f-group"); if (fg) fg.addEventListener("change", function () { state.ui.group = this.value; saveUiOnly(); render(); });
+    var showCs = $("#f-showcs");
+    if (showCs) { showCs.checked = !!state.ui.showCs; showCs.addEventListener("change", function () { state.ui.showCs = showCs.checked; saveUiOnly(); renderSheet(); }); }
 
     // 상단 탭 전환
     var tabnav = $("#tabnav");
@@ -4131,6 +4435,7 @@
       csPane.addEventListener("change", onCsChange);
       csPane.addEventListener("input", onCsInput);
       csPane.addEventListener("focusout", onCsFocusOut);
+      csPane.addEventListener("keydown", onCsKey);
     }
     document.addEventListener("mousemove", moveSheetResize);
     document.addEventListener("mouseup", stopSheetResize);

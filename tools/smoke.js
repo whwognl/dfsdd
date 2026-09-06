@@ -151,6 +151,37 @@ const server = http.createServer((req, res) => {
       await page.locator('#copy-bar [data-copy-seq]').uncheck();
     }
 
+    // CS: 2번째 행을 반품접수로 → CS탭 섹션/펼치기/장부 → 차감이 마진에 반영되는지
+    if (rows > 1) {
+      await page.click('#tabnav [data-tab="orders"]'); await page.waitForTimeout(150);
+      const tr2 = page.locator("#sheet-table tbody tr[data-id]").nth(1);
+      const csId = await tr2.getAttribute("data-id");
+      await tr2.locator('input[data-act="return"]').click(); await page.waitForTimeout(300);   // 체크 후 행이 CS로 이동해 시트에서 사라짐
+      await page.click('#tabnav [data-tab="cs"]'); await page.waitForTimeout(250);
+      const secs = await page.locator("#pane-cs .cs-section-head b").allTextContents();
+      console.log("  CS 섹션:", secs.map((t) => t.split(" — ")[0]).join(" / "));
+      const item = page.locator(`#pane-cs .cs-item[data-id="${csId}"]`);
+      if (!(await item.count())) errors.push("CS 탭에 반품 건이 없음");
+      await item.locator("[data-cs-expand]").click(); await page.waitForTimeout(200);
+      const stepN = await item.locator("[data-cs-step]").count();
+      if (process.env.SHOTS) await page.screenshot({ path: "/tmp/shots/cs-detail.png", fullPage: true });
+      await item.locator('[data-cs-ledger-add="supplier_return_fee"]').click(); await page.waitForTimeout(200);
+      const csCost = await page.locator(`#pane-cs .cs-item[data-id="${csId}"] .cs-sub`).textContent();
+      console.log("  단계 수:", stepN, "| 요약:", csCost.replace(/\s+/g, " ").trim().slice(0, 90));
+      if (!/차감 ₩6,000/.test(csCost)) errors.push("반품비 장부가 차감으로 반영되지 않음: " + csCost);
+      await page.locator(`#pane-cs .cs-item[data-id="${csId}"] [data-cs-step="supplier_claim"]`).check(); await page.waitForTimeout(200);
+      const wait = await page.locator(`#pane-cs .cs-item[data-id="${csId}"] .cs-wait`).first().textContent();
+      console.log("  단계 체크 후 기다림:", wait.trim());
+      await page.locator(`#pane-cs .cs-item[data-id="${csId}"] [data-cs-tpl="pickup"]`).click(); await page.waitForTimeout(150);
+      const tplClip = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+      console.log("  멘트 복사:", tplClip.slice(0, 30) + "…");
+      await page.locator(`#pane-cs .cs-item[data-id="${csId}"] [data-cs-goto]`).click(); await page.waitForTimeout(300);
+      const backRows = await page.locator("#sheet-table tbody tr[data-id]").count();
+      console.log("  주문으로 이동 → 시트 행:", backRows, "| 검색어:", await page.inputValue("#q"));
+      if (!backRows) errors.push("CS 주문으로 이동 시 시트에 안 보임");
+      await page.fill("#q", ""); await page.evaluate(() => { document.getElementById("q").dispatchEvent(new Event("input")); }); await page.waitForTimeout(400);
+    }
+
     // 내보내기 — 모달의 모든 버튼
     await page.click("#btn-export");
     await page.waitForTimeout(200);

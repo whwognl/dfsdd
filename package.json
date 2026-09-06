@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node tools/verify-export.js",
         "smoke": "node tools/smoke.js",
+    "test:biff": "node tools/test-biff.js",
     "serve": "python3 -m http.server 8777"
   },
   "devDependencies": {

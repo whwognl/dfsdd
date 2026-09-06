@@ -794,12 +794,18 @@
    * ===================================================================== */
   function cfbWrap(stream) {
     var SS = 512;
+    var PER = SS / 4;                                                  // FAT 섹터 하나가 가리키는 섹터 수(128)
     var padded = Math.max(4096, Math.ceil(stream.length / SS) * SS);   // 항상 일반 섹터(미니스트림 안 씀)
     var dataSectors = padded / SS;
-    var fatSectors = 1;
-    while (fatSectors * (SS / 4) < dataSectors + fatSectors + 1) fatSectors++;
-    if (fatSectors > 109) throw new Error("파일이 너무 커서 .xls 로 만들 수 없습니다. .xlsx 로 내보내 주세요");
-    var dirSector = dataSectors + fatSectors;
+    /* 섹터 배치: [데이터][FAT][DIFAT(FAT 109개 초과분)][디렉터리] — FAT 수는 전체 섹터 수에 따라 결정 */
+    var fatSectors = 1, difatSectors = 0;
+    for (;;) {
+      difatSectors = fatSectors > 109 ? Math.ceil((fatSectors - 109) / (PER - 1)) : 0;
+      if (fatSectors * PER >= dataSectors + fatSectors + difatSectors + 1) break;
+      fatSectors++;
+    }
+    var difatBase = dataSectors + fatSectors;
+    var dirSector = difatBase + difatSectors;
     var totalSectors = dirSector + 1;
 
     var out = new Uint8Array((totalSectors + 1) * SS), dv = dvOf(out);
@@ -815,23 +821,34 @@
     dv.setUint32(56, 4096, true);
     dv.setUint32(60, ENDOFCHAIN, true);
     dv.setUint32(64, 0, true);
-    dv.setUint32(68, ENDOFCHAIN, true);
-    dv.setUint32(72, 0, true);
+    dv.setUint32(68, difatSectors ? difatBase : ENDOFCHAIN, true);
+    dv.setUint32(72, difatSectors, true);
     for (var i = 0; i < 109; i++) dv.setUint32(76 + i * 4, i < fatSectors ? dataSectors + i : FREESECT, true);
 
     /* 데이터 */
     out.set(stream, SS);
 
     /* FAT */
-    var fatBase = (dataSectors + 1) * SS, fatCount = fatSectors * (SS / 4);
+    var fatBase = (dataSectors + 1) * SS, fatCount = fatSectors * PER;
     for (var s = 0; s < fatCount; s++) {
       var v;
       if (s < dataSectors - 1) v = s + 1;
       else if (s === dataSectors - 1) v = ENDOFCHAIN;
-      else if (s < dirSector) v = FATSECT;
+      else if (s < difatBase) v = FATSECT;
+      else if (s < dirSector) v = DIFSECT;
       else if (s === dirSector) v = ENDOFCHAIN;
       else v = FREESECT;
       dv.setUint32(fatBase + s * 4, v, true);
+    }
+
+    /* DIFAT 섹터: 110번째 이후 FAT 섹터 번호 127개씩 + 다음 DIFAT 섹터 */
+    for (var d = 0; d < difatSectors; d++) {
+      var dbase = (difatBase + d + 1) * SS;
+      for (var k = 0; k < PER - 1; k++) {
+        var fi = 109 + d * (PER - 1) + k;
+        dv.setUint32(dbase + k * 4, fi < fatSectors ? dataSectors + fi : FREESECT, true);
+      }
+      dv.setUint32(dbase + (PER - 1) * 4, d + 1 < difatSectors ? difatBase + d + 1 : ENDOFCHAIN, true);
     }
 
     /* 디렉터리(4 엔트리) */

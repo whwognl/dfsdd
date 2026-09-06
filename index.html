@@ -349,6 +349,58 @@
 
   /* ---- 주문관리 상단 KPI ---- */
   .orders-kpi{display:grid; grid-template-columns:repeat(auto-fit,minmax(138px,1fr)); gap:10px; margin-bottom:12px}
+  /* ---- CS 관리 (오늘 할 일 / 기다리는 중 / 종결) ---- */
+  .cs-pill.me{background:var(--brand-bg); border-color:var(--brand-line); color:var(--brand)}
+  .cs-pill.customer,.cs-pill.supplier,.cs-pill.courier,.cs-pill.coupang{background:var(--warn-bg); border-color:var(--warn-line); color:var(--warn)}
+  .cs-chip.etc{background:var(--brand-bg); color:var(--brand); border:1px solid var(--brand-line)}
+  .cs-section{margin-bottom:14px}
+  .cs-section-head{display:flex; align-items:center; gap:8px; padding:6px 2px; cursor:pointer; user-select:none}
+  .cs-section-head b{font-size:var(--fs-body); font-weight:var(--w-semi)} .cs-section-head span{font-size:var(--fs-caption); color:var(--muted); background:var(--fill); border-radius:var(--r-pill); padding:1px 7px}
+  .cs-section.todo .cs-section-head b{color:var(--brand)}
+  .cs-section.collapsed .cs-section-body{display:none}
+  .cs-section-body{display:flex; flex-direction:column; gap:6px}
+  .cs-item{background:var(--card); border:1px solid var(--line-soft); border-radius:var(--r-md); box-shadow:var(--shadow)}
+  .cs-item.due{border-color:var(--warn-line)} .cs-item.closed{opacity:.72}
+  .cs-item.open{border-color:var(--brand-line)}
+  .cs-row{display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto; gap:10px; align-items:center; padding:8px 12px; cursor:pointer}
+  .cs-main{display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap}
+  .cs-main .cs-name{font-weight:var(--w-semi); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:360px}
+  .cs-main .cs-opt,.cs-main .cs-meta{font-size:var(--fs-footnote); color:var(--muted); white-space:nowrap}
+  .cs-main .cs-meta em{font-style:normal; color:var(--warn)}
+  .cs-reason{font-size:var(--fs-caption); color:var(--muted); border:1px solid var(--line-soft); border-radius:var(--r-pill); padding:1px 7px}
+  .cs-sub{display:flex; align-items:center; gap:8px; min-width:0; font-size:var(--fs-footnote); color:var(--ink-2); flex-wrap:wrap}
+  .cs-wait{display:inline-block; border-radius:var(--r-pill); padding:2px 8px; font-size:var(--fs-caption); font-weight:var(--w-semi); white-space:nowrap}
+  .cs-wait.me{background:var(--brand-bg); color:var(--brand)} .cs-wait.customer,.cs-wait.supplier,.cs-wait.courier,.cs-wait.coupang{background:var(--warn-bg); color:var(--warn)} .cs-wait.done{background:var(--ok-bg); color:var(--ok)}
+  .cs-progress{font-variant-numeric:tabular-nums; color:var(--muted)}
+  .cs-lastmemo{color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px}
+  .cs-actions{display:flex; gap:5px; align-items:center; white-space:nowrap}
+  .cs-detail{border-top:1px solid var(--line-soft); padding:12px 14px 10px}
+  .cs-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 20px}
+  .cs-grid section h4{margin:0 0 6px; font-size:var(--fs-footnote); font-weight:var(--w-semi); color:var(--muted)} .cs-grid section h4 small{font-weight:var(--w-reg); color:var(--muted-2); margin-left:6px}
+  .cs-inline{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px}
+  .cs-inline label{font-size:var(--fs-footnote); color:var(--muted); display:inline-flex; align-items:center; gap:4px}
+  .cs-inline select,.cs-inline input{border:1px solid var(--line); border-radius:var(--r-sm); padding:4px 7px; font-size:var(--fs-footnote); background:#fff; min-height:26px}
+  .cs-types{display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px}
+  .cs-typebtn{border:1px solid var(--line); background:#fff; color:var(--muted); border-radius:var(--r-pill); padding:2px 9px; font-size:var(--fs-caption); font-weight:var(--w-med)}
+  .cs-typebtn.on{background:var(--brand); border-color:var(--brand); color:#fff}
+  .cs-steps{display:flex; flex-direction:column; gap:3px; margin-bottom:6px}
+  .cs-step{display:flex; align-items:center; gap:6px; font-size:var(--fs-footnote); color:var(--ink-2)}
+  .cs-step.done{color:var(--muted); text-decoration:line-through}
+  .cs-step small{color:var(--muted-2); font-size:var(--fs-caption); margin-left:2px; text-decoration:none}
+  .cs-step input{accent-color:var(--brand)}
+  .cs-ledger{display:flex; flex-direction:column; gap:4px}
+  .cs-ledger-row{display:grid; grid-template-columns:140px 100px auto minmax(120px,1fr) 30px; gap:6px; align-items:center}
+  .cs-ledger-row select,.cs-ledger-row input{border:1px solid var(--line); border-radius:var(--r-sm); padding:4px 7px; font-size:var(--fs-footnote); background:#fff; min-height:26px}
+  .cs-settled{font-size:var(--fs-caption); color:var(--muted); display:inline-flex; align-items:center; gap:4px; white-space:nowrap}
+  .cs-timeline{border-top:1px dashed var(--line); margin-top:12px; padding-top:10px}
+  .cs-timeline-head{display:flex; gap:10px; align-items:flex-start; margin-bottom:8px} .cs-timeline-head b{font-size:var(--fs-footnote); color:var(--muted); padding-top:6px}
+  .cs-timeline-head textarea{flex:1; min-height:34px; border:1px solid var(--line); border-radius:var(--r-sm); padding:6px 9px; font:inherit; font-size:var(--fs-footnote); resize:vertical}
+  .cs-log{display:flex; gap:10px; align-items:baseline; font-size:var(--fs-footnote); padding:2px 0; border-bottom:1px dotted var(--line-soft)}
+  .cs-log .t{color:var(--muted-2); font-size:var(--fs-caption); white-space:nowrap; min-width:118px} .cs-log .x{flex:1; white-space:pre-wrap}
+  .cs-log.step .x,.cs-log.money .x,.cs-log.contact .x{color:var(--muted)}
+  .cs-log.money .x{color:var(--warn)}
+  .cs-foot{display:flex; justify-content:flex-end; margin-top:8px}
+  @media(max-width:1100px){.cs-grid{grid-template-columns:1fr} .cs-row{grid-template-columns:1fr}}
   /* ---- 한 줄 복사 툴바 ---- */
   .copy-bar{position:sticky; top:112px; z-index:11; display:flex; align-items:center; gap:5px; flex-wrap:wrap;
     background:rgba(255,255,255,.92); backdrop-filter:saturate(180%) blur(14px); -webkit-backdrop-filter:saturate(180%) blur(14px);
@@ -605,6 +657,7 @@
             <option value="product">상품별</option>
           </select>
         </div>
+        <label class="muted-note" style="white-space:nowrap"><input type="checkbox" id="f-showcs"> CS 포함</label>
         <div class="grp"><label>묶어보기</label>
           <select id="f-group">
             <option value="none">묶지 않기</option>

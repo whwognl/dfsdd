@@ -4,7 +4,10 @@
 "use strict";
 const fs = require("fs"), path = require("path");
 require(path.join(__dirname, "..", "xlsx-lite.js"));
-const X = globalThis.XlsxLite;
+const B = require(path.join(__dirname, "..", "biff.js"));
+const XL = globalThis.XlsxLite;
+// .xls(CFB) 는 biff.js, 그 외(.xlsx) 는 xlsx-lite 로 읽음
+const X = { read: (buf) => B.isCfb(new Uint8Array(buf)) ? Promise.resolve(B.read(buf)) : XL.read(buf) };
 const HEADER = ["수집일","주문일","판매사이트 주문번호","판매사이트명","판매자ID","판매가","배송비금액","마스터상품코드","판매사이트 상품코드","상품명","판매자상품코드","주문선택사항","주문수량","에누리","구매링크","구매가","구매자명","수령자명","수령자전화번호","수령자휴대폰번호","배송지우편번호","배송지주소","배송메세지","담당자","구매처","계정","구매금액","주문번호　앞부분","결제일시","카드정보","포인트","주문여부","한줄메모","주문고유번호","배송사명","송장번호"];
 function ab(p) { const b = fs.readFileSync(p); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); }
 let fail = 0;
