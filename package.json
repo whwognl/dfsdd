@@ -1,0 +1,15 @@
+{
+  "name": "uruuru-order-manager",
+  "version": "2.0.0",
+  "private": true,
+  "description": "우루루 통합 주문관리 — 웹앱 + 수기용 엑셀 양식 (2026-09 주문서 53열 기준)",
+  "scripts": {
+    "test": "node tools/test.js",
+    "template": "node tools/build-template.js",
+    "smoke": "node tools/smoke.js",
+    "serve": "python3 -m http.server 8777"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

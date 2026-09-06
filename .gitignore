@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+*.log
+.DS_Store
+# 개인정보가 들어간 산출물은 저장소에 올리지 않습니다
+*.xlsx
+*.csv
+우루루_*.json
