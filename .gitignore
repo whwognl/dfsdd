@@ -6,3 +6,8 @@ package-lock.json
 *.xlsx
 *.csv
 우루루_*.json
+
+# 합성 샘플(개인정보 없음)은 예외
+!sample/*.xlsx
+!sample/*.xls
+!sample/*.csv
