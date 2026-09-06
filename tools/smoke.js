@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
 (async () => {
   await new Promise((r) => server.listen(PORT, r));
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, colorScheme: process.env.DARK ? 'dark' : 'light' });
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));

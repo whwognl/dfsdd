@@ -19,6 +19,17 @@ html = html.replace(/<script src="([^"?]+)(\?[^"]*)?"><\/script>\s*/g, (m, file)
   return `<script>\n/* ===== ${file} ===== */\n${code}\n</script>\n`;
 });
 
+// --artifact: 아티팩트로 게시할 때는 <!doctype>/<html>/<head>/<body> 껍데기를 벗깁니다
+if (process.argv.includes("--artifact")) {
+  const head = html.match(/<head>([\s\S]*?)<\/head>/i);
+  const body = html.match(/<body>([\s\S]*?)<\/body>/i);
+  if (!head || !body) throw new Error("head/body 를 찾지 못했습니다");
+  const inner = head[1]
+    .replace(/<meta[^>]*>\s*/gi, "")
+    .trim();
+  html = inner + "\n" + body[1].trim() + "\n";
+}
+
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html, "utf8");
 console.log("생성 완료:", out, "(" + (Buffer.byteLength(html) / 1024).toFixed(0) + " KB)");

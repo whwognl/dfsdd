@@ -145,12 +145,31 @@
   }
   App.copyText = copyText;
 
-  function downloadBlob(blob, filename) {
+  // 파일 저장 — 로컬에서는 링크로, 아티팩트(claude.ai)로 열었을 때는 뷰어 저장 API로
+  var downloadsApi = null;
+  function saveViaAnchor(blob, filename) {
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 400);
+  }
+  function downloadBlob(blob, filename) {
+    if (!(global.claude && typeof global.claude.use === "function")) {
+      saveViaAnchor(blob, filename);
+      return;
+    }
+    var ready = downloadsApi ? Promise.resolve(downloadsApi) : global.claude.use("downloads");
+    ready.then(function (api) {
+      downloadsApi = api;
+      if (!api || typeof api.save !== "function") { saveViaAnchor(blob, filename); return; }
+      return api.save({ filename: filename, data: blob }).then(function () {
+        toast(filename + " 저장했습니다");
+      }, function (err) {
+        if (err && err.code === "declined") toast("저장을 취소했습니다");
+        else saveViaAnchor(blob, filename);
+      });
+    }, function () { saveViaAnchor(blob, filename); });
   }
   App.downloadBlob = downloadBlob;
 
