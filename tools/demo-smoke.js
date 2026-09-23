@@ -38,7 +38,7 @@ const MIME = { ".html":"text/html; charset=utf-8", ".js":"text/javascript; chars
   if (Math.abs(a.pace / 8e9 - 1) > 0.08) errors.push("연매출 페이스가 80억 ±8% 밖: " + a.pace);
   if (process.env.SHOTS) await page.screenshot({ path: "/tmp/shots/demo-autopilot-0.png", fullPage: false });
   // 다른 탭들 렌더
-  for (const tab of ["process", "dashboard", "orders", "cs", "daily", "profit", "lineup", "sourcing", "invoice", "blacklist", "loss", "journal", "calc"]) {
+  for (const tab of ["issues", "process", "dashboard", "orders", "cs", "daily", "profit", "lineup", "sourcing", "invoice", "blacklist", "loss", "journal", "calc"]) {
     await page.click(`#tabnav [data-tab="${tab}"]`); await page.waitForTimeout(700);
     const txt = (await page.locator(`#pane-${tab}`).innerText()).replace(/\s+/g, " ").trim();
     console.log(`  [${tab}] ${txt.length}자 · ${txt.slice(0, 110)}`);

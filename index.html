@@ -614,7 +614,7 @@
   .ap-cs [data-k="cs"]{max-height:420px; overflow:hidden; -webkit-mask-image:linear-gradient(#000 88%, transparent); mask-image:linear-gradient(#000 88%, transparent)}
   .ap-ev{display:grid; grid-template-columns:62px 58px 1fr; gap:8px; padding:5px 0; border-bottom:1px solid var(--ap-line); animation:ap-in .45s ease}
   @keyframes ap-in{from{opacity:0; transform:translateY(-6px)}to{opacity:1; transform:none}}
-  .ap-ev time{color:var(--ap-mute); font-size:11px} .ap-ev .tag{font-size:11px; border-radius:6px; padding:1px 6px; text-align:center; align-self:start; background:rgba(255,255,255,.06); color:var(--ap-mute)}
+  .ap-ev time{color:var(--ap-mute); font-size:11px} .ap-ev .tag{font-size:11px; white-space:nowrap; border-radius:6px; padding:1px 6px; text-align:center; align-self:start; background:rgba(255,255,255,.06); color:var(--ap-mute)}
   .ap-ev.ok .tag{background:rgba(48,209,88,.14); color:var(--ap-ok)} .ap-ev.warn .tag{background:rgba(255,159,10,.16); color:var(--ap-warn)} .ap-ev.danger .tag{background:rgba(255,69,58,.18); color:var(--ap-bad)} .ap-ev.info .tag{background:rgba(59,157,255,.14); color:var(--ap-blue)}
   .ap-ev .tx{color:var(--ap-ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .ap-ev.danger .tx{color:#ffb4ae}
@@ -640,6 +640,25 @@
   .ap-dbi:last-child{border-bottom:0} .ap-dbi i{width:8px; height:8px; border-radius:50%; border:2px solid var(--ap-ok); border-top-color:transparent; opacity:.5} .ap-dbi.spin i{opacity:1; animation:ap-spin 1s linear infinite}
   @keyframes ap-spin{to{transform:rotate(360deg)}}
   .ap-dbi b{font-weight:var(--w-med)} .ap-dbi span,.ap-dbi em,.ap-dbi time{font-size:11px; color:var(--ap-mute); font-style:normal} .ap-dbi.spin em{color:var(--ap-ok)}
+  .ap-work{margin-bottom:12px}
+  .ap-work-head{display:flex; align-items:baseline; gap:10px; margin:2px 0 8px} .ap-work-head h3{font-size:13px} .ap-work-head span{font-size:11px; color:var(--ap-mute)} .ap-work-head .sp{flex:1}
+  .ap-work-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+  .ap-wcol.bot{border-top:2px solid var(--ap-ok)} .ap-wcol.alba{border-top:2px solid var(--ap-blue)} .ap-wcol.boss{border-top:2px solid var(--ap-warn)}
+  .ap-wnum{display:grid; grid-template-columns:auto auto auto auto; gap:2px 10px; align-items:baseline; margin-bottom:6px; justify-content:start}
+  .ap-wnum b{font-size:22px; font-weight:var(--w-semi)} .ap-wnum b.hot{color:var(--ap-warn)} .ap-wnum span{font-size:11px; color:var(--ap-mute)}
+  .ap-wsub{font-size:11px; color:var(--ap-mute); margin-bottom:8px; line-height:1.4}
+  .ap-wcol ul{list-style:none; margin:0; padding:0} .ap-wcol li{display:grid; grid-template-columns:8px 1fr; gap:8px; padding:5px 0; border-top:1px solid var(--ap-line); font-size:12px}
+  .ap-wcol li i{width:8px; height:8px; border-radius:50%; background:var(--ap-blue); margin-top:5px} .ap-wcol li.waiting i{background:var(--ap-mute)} .ap-wcol li.new i{background:var(--ap-warn)} .ap-wcol.bot li i{background:var(--ap-ok)}
+  .ap-wcol li>div{min-width:0} .ap-wcol li span{display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap} .ap-wcol li em{display:block; font-style:normal; font-size:11px; color:var(--ap-mute)} .ap-wcol li.none{color:var(--ap-mute); grid-template-columns:1fr}
+  /* 이슈 대응 탭 */
+  .issues-kpi{grid-template-columns:repeat(6,1fr)} .issues-kpi .v{font-size:var(--fs-title3)}
+  .issues-filters{display:flex; gap:8px; margin:0 0 12px; flex-wrap:wrap}
+  .issues-filters .pill{border:1px solid var(--line); background:#fff; border-radius:var(--r-pill); padding:5px 12px; font:inherit; font-size:var(--fs-footnote); cursor:pointer; color:var(--ink)} .issues-filters .pill.on{border-color:var(--brand); color:var(--brand); background:var(--brand-bg)} .issues-filters .pill b{font-weight:var(--w-semi)}
+  .owner-chip{display:inline-block; font-size:11px; border-radius:6px; padding:1px 6px; margin-right:4px; background:var(--fill); color:var(--muted)} .owner-chip.alba{background:var(--brand-bg); color:var(--brand)} .owner-chip.boss{background:var(--warn-bg); color:var(--warn)} .owner-chip.bot{background:#e9f9ee; color:#1f7a3a}
+  .status-chip{display:inline-block; font-size:11px; border-radius:999px; padding:2px 8px; background:var(--fill); color:var(--muted)} .status-chip.working{background:var(--brand-bg); color:var(--brand)} .status-chip.new{background:var(--warn-bg); color:var(--warn)} .status-chip.done{background:#e9f9ee; color:#1f7a3a}
+  table.issues tr.pri td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+  .staff-grid{grid-template-columns:repeat(4,1fr)} .staff-grid .v{font-size:var(--fs-footnote); font-weight:var(--w-reg); color:var(--muted); line-height:1.45}
+  @media(max-width:1100px){.issues-kpi{grid-template-columns:repeat(3,1fr)}.staff-grid{grid-template-columns:repeat(2,1fr)}.ap-work-grid{grid-template-columns:1fr}}
   .ap-charts{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
   .ap-chart{height:150px} .ap-chart svg{width:100%; height:100%; display:block}
   .ap-chart{height:172px} .ap-chart svg{height:140px}
@@ -668,7 +687,7 @@
   <div class="logo">반자동 주문 보조 도구<small>구매·결제는 직접 — 정리·계산만 도와드려요</small></div>
   <div class="spacer"></div>
   <span class="privacy-pill" id="privacy-pill" title="모든 처리는 사용자 PC 안에서만 이뤄집니다">로컬 처리</span>
-  <button class="btn demo" id="btn-demo" title="모든 것이 자동으로 돌아가는 모습을 시뮬레이션으로 보여줍니다 (실제 데이터는 잠시 보관)">자동화 데모</button>
+  <button class="btn demo" id="btn-demo" title="봇이 주문·CS·DB를 자동으로 처리하는 관제 화면을 엽니다 (기존 데이터는 잠시 보관)">자동 운영</button>
   <button class="btn" id="btn-settings">설정</button>
   <button class="btn" id="btn-quick-invoice" disabled>송장 파일</button>
   <button class="btn" id="btn-export" disabled>내보내기</button>
@@ -764,12 +783,13 @@
 
   <!-- ===== 대시보드(앱 본체) — 상단 탭 + 탭별 패널 ===== -->
   <section id="view-dashboard" class="hidden">
-    <div id="demo-strip"><span class="dot"></span><b>시뮬레이션</b><span>지금 보이는 숫자는 합성 데이터입니다 — 실제 데이터는 보관 중이고 저장되지 않습니다.</span><span class="spacer"></span><button class="btn sm" type="button" data-demo-go>관제 화면으로</button><button class="btn sm" type="button" data-demo-stop>데모 종료</button></div>
+    <div id="demo-strip"><span class="dot"></span><b>자동 운영 중</b><span>봇이 주문·CS·DB를 처리하고 있습니다. 사람 손이 필요한 일은 이슈 대응 탭에 배정됩니다.</span><span class="spacer"></span><button class="btn sm" type="button" data-demo-go>관제 화면</button><button class="btn sm" type="button" data-demo-stop>자동 운영 끄기</button></div>
     <div class="process-strip" id="process-strip"></div>
     <nav class="tabs" id="tabnav"></nav>
 
     <!-- 대시보드 탭: 한눈에 보기 -->
     <div class="tabpane hidden" id="pane-autopilot"></div>
+    <div class="tabpane hidden" id="pane-issues"></div>
     <div class="tabpane" id="pane-dashboard">
       <div class="summary" id="summary"></div>
       <div id="overview-extra"></div>

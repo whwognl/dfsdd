@@ -50,7 +50,8 @@
   ];
   function mapProducts(src) {
     return src.filter(function (p) { return p && p.name && p.price > 0 && p.cost >= 0; }).map(function (p, i) {
-      return { id:"DEMO" + (1001 + i), name:p.name, opt:p.opt || "", n:p.n || 1, price:p.price, cost:p.cost, vendor:p.vendor || "구매처", courier:p.courier || "CJ대한통운", qty:p.qty || { "1":9, "2":1 } };
+      var mo = new Date().getMonth() + 1, w = (p.n || 1) * (p.season ? (p.season[mo] || 0.35) : 1);
+      return { id:"DEMO" + (1001 + i), name:p.name, opt:p.opt || "", n:w, price:p.price, cost:p.cost, vendor:p.vendor || "구매처", courier:p.courier || "CJ대한통운", qty:p.qty || { "1":9, "2":1 } };
     });
   }
   var PRODUCTS = mapProducts(DD.products && DD.products.length ? DD.products : FALLBACK_PRODUCTS);
@@ -72,8 +73,10 @@
   var COURIERS = (DD.couriers && DD.couriers.length) ? DD.couriers : [["CJ대한통운", 6], ["롯데택배", 3], ["한진택배", 1]];
   var SEASON = { 1:1.15, 2:1.10, 3:0.95, 4:0.90, 5:0.90, 6:0.92, 7:0.95, 8:0.98, 9:1.0, 10:0.97, 11:0.98, 12:1.05 };
   var SURNAMES = [["김", 21], ["이", 15], ["박", 8], ["최", 5], ["정", 4], ["강", 2], ["조", 2], ["윤", 2], ["장", 2], ["임", 2], ["한", 1], ["오", 1], ["서", 1], ["신", 1], ["권", 1], ["황", 1], ["안", 1], ["송", 1], ["전", 1], ["홍", 1]];
-  var GIVEN = ["수", "진", "영", "현", "호", "민", "희", "우", "연", "지", "원", "석", "아", "은", "경", "주", "빈", "서", "훈", "혁", "린", "솔", "율", "하"];
-  var MSGS = ["문 앞에 놓아주세요", "경비실에 맡겨주세요", "부재 시 문 앞에 두세요", "배송 전 연락 부탁드려요", "택배함에 넣어주세요", "", "", "", "", ""];
+  var GIVEN = ["서준", "지호", "하준", "도윤", "시우", "예준", "민준", "지우", "서연", "하은", "지민", "수아", "지아", "채원", "다은", "은서", "지윤", "유진", "수빈", "현우", "준서", "지훈", "승현", "유나", "민서", "예은", "소율", "현서", "지원", "은우", "시윤", "하린", "윤서", "서현", "정우", "성민", "재원", "혜진", "미영", "영수", "정숙", "미경", "순자", "정희", "명숙", "은정", "미선", "경희", "선영", "지영", "수진", "민수", "영호", "성호", "상훈", "진우", "동현", "재호", "종수", "병철", "상민", "경수", "태호", "혜원", "보람", "슬기", "나영", "유경", "가은", "세훈"];
+  var ROADS = ["중앙로", "번영로", "동탄대로", "행복로", "새터로", "은행나무길", "산업로", "호수공원로", "정자일로", "백현로", "경수대로", "미사강변대로", "송파대로", "테헤란로", "양재대로", "올림픽로", "서초대로", "해운대해변로", "센텀중앙로", "달구벌대로", "유성대로", "둔산로", "첨단과학로", "상무대로", "삼산로", "봉명로", "불당대로", "탕정로", "원주로", "춘천로", "경명대로", "공단로", "덕산로", "장안로", "부일로", "소사로", "탄천로", "매화로", "운정로", "김포한강로"];
+  var APTS = ["힐스테이트", "래미안", "자이", "푸르지오", "e편한세상", "롯데캐슬", "더샵", "아이파크", "호반베르디움", "우미린", "한신더휴", "센트럴파크", "리버파크", "현대아파트", "주공아파트", "LH천년나무", "코오롱하늘채", "중흥S-클래스"];
+  var MSGS = ["문 앞에 놓아주세요", "경비실에 맡겨주세요", "부재 시 문 앞에 두세요", "배송 전 연락 부탁드려요", "택배함에 넣어주세요", "공동현관 비밀번호 1234#", "벨 누르지 말고 문 앞에 두세요", "낮에는 집에 없어요, 문 앞 부탁드려요", "깨지기 쉬워요 조심히 부탁드립니다", "경비실 부재 시 문 앞", "", "", "", "", "", ""];
   var CS_MIX = [["반품접수", 30], ["차액협의", 22], ["출고중지요청", 18], ["배송문의", 12], ["택배미수령", 6], ["품절취소", 6], ["과배송", 3], ["교환문의", 3]];
   var CS_RATE = 0.036;
   var CS_REASON = { "반품접수":["단순변심", "등급차이", "파손"], "차액협의":["등급차이", "파손"], "출고중지요청":["단순변심", "오주문"], "배송문의":["배송지연"], "택배미수령":["미수령"], "품절취소":["품절"], "과배송":["기타"], "교환문의":["오주문", "파손"] };
@@ -94,9 +97,9 @@
     else OH.csAutoMemo(o, "AI 응대 발송: " + text, "note");
   }
   var DEMO_BLACKLIST = [
-    { name:"박*훈", address:"경기도 광주시 ○○로 77", phone:"", memo:"반품 후 재주문 반복(데모)", addedAt:"" },
-    { name:"최*라", address:"부산광역시 사상구 ○○길 12", phone:"", memo:"수취 거부 3회(데모)", addedAt:"" },
-    { name:"정*민", address:"인천광역시 남동구 ○○로 5", phone:"", memo:"악성 CS(데모)", addedAt:"" }
+    { name:"박정훈", address:"경기도 광주시 경안로 77 그린빌 302호", phone:"", memo:"반품 후 재주문 반복 · 반품비 미납", addedAt:"2026-06-12" },
+    { name:"최미라", address:"부산광역시 사상구 사상로 12 현대아파트 104동 901호", phone:"", memo:"수취 거부 3회", addedAt:"2026-07-03" },
+    { name:"정승민", address:"인천광역시 남동구 인주대로 5-3 2층", phone:"", memo:"악성 CS · 허위 파손 주장", addedAt:"2026-08-21" }
   ];
 
   /* ---------- 상태 ---------- */
@@ -113,7 +116,7 @@
   function fmtDT(d) { return dayKeyOf(d) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()); }
   function fmtT(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
   function wdayIdx(d) { return (d.getDay() + 6) % 7; }   // JS 0=일 → 파이썬식 0=월
-  function freshDay() { return { cnt:0, rev:0, margin:0, cost:0, cs:0, csCost:0, held:0 }; }
+  function freshDay() { return { cnt:0, rev:0, margin:0, cost:0, cs:0, csCost:0, held:0, issues:0, issuesDone:0 }; }
 
   /* ---------- 매출 수준(과거·오늘) ---------- */
   function level(d, todayD) {
@@ -149,9 +152,16 @@
   }
 
   /* ---------- 합성 주문 ---------- */
-  function maskedName() { var s = pickW(SURNAMES, function (x) { return x[1]; })[0]; return s + "○" + pick(GIVEN); }
+  function maskedName() { var s = pickW(SURNAMES, function (x) { return x[1]; })[0]; return s + pick(GIVEN); }
   function region() { return pickW(REGIONS, function (x) { return x[1]; })[0]; }
-  function address() { var r = region(); return r + " ○○로 " + ri(1, 280) + (rnd() < 0.55 ? " " + ri(101, 1503) + "호" : ""); }
+  function address() {
+    var r = region(), road = pick(ROADS), num = ri(3, 420), k = rnd();
+    if (k < 0.5) return r + " " + road + " " + num + " " + pick(APTS) + " " + ri(101, 130) + "동 " + ri(101, 2504) + "호";
+    if (k < 0.7) return r + " " + road + " " + num + "-" + ri(1, 28) + " " + ri(2, 5) + "층";
+    if (k < 0.85) return r + " " + road + " " + num + " " + pick(["○○빌라", "삼성빌라", "그린빌", "한양빌라", "우성빌라"]).replace("○○", pick(["대성", "현대", "미래", "행복", "청솔"])) + " " + pick(["B", ""]) + ri(101, 402) + "호";
+    return r + " " + road + " " + num;
+  }
+  function phoneNo() { return "010-" + String(ri(2000, 9999)) + "-" + digits(4); }
   function makeOrder(t) {
     var p = pickW(PRODUCTS, function (x) { return x.n; });
     var qk = Object.keys(p.qty || { "1":1 }), qty = parseInt(pickW(qk, function (k) { return p.qty[k]; }), 10) || 1;
@@ -161,15 +171,15 @@
     var head = String(ri(1, 32)) + "1002" + digits(9), tail = "40" + digits(14);
     o.orderDate = fmtDT(t); o.collectedAt = fmtDT(new Date(t.getTime() + ri(1, 9) * MIN));
     o.orderNumber = head + " " + tail; o.uniqueNo = "1" + digits(11); o.orderId = head;
-    o.site = "쿠팡"; o.sellerId = "sample-store"; o.manager = "자동";
+    o.site = "쿠팡"; o.sellerId = "루루농장"; o.manager = "자동";
     o.productId = p.id; o.productName = p.name; o.option = p.opt; o.quantity = qty;
     o.paymentAmount = p.price * qty; o.shipFee = 0; o.discount = 0;
-    o.recipient = maskedName(); o.buyerName = o.recipient; o.phone = "010-****-" + digits(4); o.phone2 = "";
+    o.recipient = maskedName(); o.buyerName = rnd() < 0.85 ? o.recipient : maskedName(); o.phone = phoneNo(); o.phone2 = rnd() < 0.15 ? phoneNo() : "";
     o.zipcode = String(ri(10000, 63999)); o.address = address(); o.deliveryMsg = pick(MSGS);
     o.vendor = p.vendor; o.sourcingPrice = p.cost; o.purchaseAmount = p.cost * qty; o.sourcingLink = "";
     o.status = "pending"; o.orderedYn = ""; o.courier = ""; o.invoiceNumber = ""; o.note = "";
     // 블랙리스트 일치(합성) — 약 1/220 건
-    if (rnd() < 1 / 220) { var b = pick(DEMO_BLACKLIST); o.recipient = b.name.replace("*", "○"); o.buyerName = o.recipient; o.address = b.address; }
+    if (rnd() < 1 / 220) { var b = pick(DEMO_BLACKLIST); o.recipient = b.name; o.buyerName = o.recipient; o.address = b.address; }
     o._d = { p:p, stage:"collected", at:t.getTime(), stageAt:t.getTime(), next:t.getTime() + ri(8, 40) * 1000, cs:null };
     OH.computeMargin(o);
     st.orders.unshift(o);
@@ -181,9 +191,11 @@
       bot("security", "블랙리스트 일치 → 자동 보류: " + o.recipient);
       feed(t, "보류", "danger", o.recipient + " · " + o.productName + " " + o.option + " — 블랙리스트 일치(" + (o.risk.reasons[0] || "") + ") → 자동 보류, 담당자 확인 대기");
       OH.csAutoMemo(o, "자동 보류: 블랙리스트 일치 — " + o.risk.reasons.join(", "), "step");
+      o._d.issue = newIssue("블랙리스트 보류", "블랙리스트 일치 주문 확인", o.recipient + " · " + o.productName + " " + o.option, "boss", { orderId:o.id, priority:"high", linked:true, feed:false }).id;
     } else if (sample(0.45)) {
       feed(t, "수집", "info", o.productName + " " + o.option + " ×" + qty + " · " + o.recipient + " · " + regionOf(o) + " · " + OH.won(o.paymentAmount));
     }
+    if (o.margin != null && o.margin < 0 && o._d.stage !== "held" && rnd() < 0.5) newIssue("역마진 주문 확인", "역마진 주문 확인", o.productName + " " + o.option + " · 마진 " + signed(o.margin), "boss", { orderId:o.id, priority:"high" });
     return o;
   }
   function short(v, n) { v = String(v || ""); return v.length > n ? v.slice(0, n - 1) + "…" : v; }
@@ -237,12 +249,15 @@
       if (!m.cs && rnd() < CS_RATE) openCs(o, tms);
     } else if (m.stage === "held") {
       D.human = Math.max(0, D.human - 1);
+      var hi = m.issue ? findIssue(m.issue) : null;
       if (rnd() < 0.7) {
+        if (hi) closeIssue(hi, "대표 확인 · 주문 취소");
         m.stage = "cancelled"; m.next = 0; o.csType = "출고중지요청"; OH.csOpen(o, "출고중지요청", { stay:true });
         o.cs.steps.stopped = true; o.cs.steps.supplier_cancel = true; o.cs.steps.cancelled = true; o.cs.steps.closed = true; o.cs.reason = "기타"; OH.csSync(o);
         OH.csAutoMemo(o, "담당자 확인 → 취소 처리(블랙리스트)", "step");
         feed(t, "보류 해제", "warn", o.recipient + " · 담당자 확인 완료 → 주문 취소 처리");
       } else {
+        if (hi) closeIssue(hi, "대표 확인 · 정상 처리");
         m.stage = "checked"; m.next = tms + ri(2, 6) * MIN; o.risk = null;
         OH.csAutoMemo(o, "담당자 확인 → 정상 주문으로 판단, 처리 재개", "step");
         feed(t, "보류 해제", "warn", o.recipient + " · 담당자 확인 완료 → 정상 처리 재개");
@@ -277,12 +292,14 @@
     if (c.human && c.humanAt < 0 && c.idx === Math.min(1, steps.length - 2)) {
       c.humanAt = tms; c.next = tms + ri(12, 40) * MIN; D.human++; D.cs.human++;
       o.cs.waitingOn = "me"; o.cs.nextAction = "담당자 확인 필요 — 고객 요구가 기준을 넘음"; OH.csSync(o);
+      c.issue = newIssue("CS 대표 판단", "CS 판단 필요 · " + o.csType, o.recipient + " · " + o.productName + " · 고객 요구가 자동 처리 한도 초과", "boss", { orderId:o.id, priority:"high", linked:true, feed:false }).id;
       OH.csAutoMemo(o, "자동 처리 한도 초과 → 담당자 확인 요청", "step");
       feed(t, "CS", "danger", o.csType + " · " + o.recipient + " · 자동 한도 초과 → 담당자 확인 대기");
       return;
     }
-    if (c.human && c.humanAt >= 0 && o.cs.nextAction) { o.cs.nextAction = ""; D.human = Math.max(0, D.human - 1); OH.csAutoMemo(o, "담당자 확인 완료 → 자동 처리 재개", "step"); }
+    if (c.human && c.humanAt >= 0 && o.cs.nextAction) { o.cs.nextAction = ""; D.human = Math.max(0, D.human - 1); OH.csAutoMemo(o, "담당자 확인 완료 → 자동 처리 재개", "step"); if (c.issue) closeIssue(findIssue(c.issue), "대표 판단 · 처리 지시"); }
     var st = steps[c.idx]; var key = st[0];
+    if (c.albaIssue) { closeIssue(findIssue(c.albaIssue), ALBA_STEPS[key] ? ALBA_STEPS[key] + " 완료" : "처리 완료"); c.albaIssue = 0; }
     o.cs.steps[key] = true; o.cs.waitingOn = st[2] || "me";
     if (key === "supplier_claim" && o.csType === "반품접수") o.cs.ledger.push({ kind:"supplier_return_fee", amount:-6000, at:fmtDT(t), memo:"자동 기록" });
     if (key === "paid" && o.csType === "차액협의") o.cs.ledger.push({ kind:"customer_compensation", amount:-3000, at:fmtDT(t), memo:"자동 기록" });
@@ -302,12 +319,92 @@
     }
     var who = st[2] || "me";
     var delay = who === "me" ? ri(2, 6) : who === "customer" ? ri(8, 30) : who === "courier" ? ri(40, 150) : ri(8, 35);
+    var nx = steps[c.idx];
+    if (nx && ALBA_STEPS[nx[0]]) {
+      var wait = !inShift("alba", tms); if (wait) delay = Math.max(delay, (nextShiftStart("alba", tms) - tms) / MIN + ri(5, 30));
+      c.albaIssue = newIssue(ALBA_STEPS[nx[0]], ALBA_STEPS[nx[0]], o.csType + " · " + o.recipient + " · " + o.productName, "alba", { orderId:o.id, linked:true }).id;
+    }
     c.next = tms + delay * MIN;
+  }
+
+  /* ---------- 이슈(사람 손이 필요한 일) · 업무 배분 ----------
+   *  owner: bot(자동) · alba(아르바이트, 09~19시 2교대) · boss(대표 판단)
+   *  status: new → working → done, 근무 외 시간엔 waiting */
+  var STAFF = { alba:[{ name:"김하늘", from:9, to:14 }, { name:"이준서", from:14, to:19 }], boss:{ name:"대표", from:8, to:22 } };
+  var OWNER_LABEL = { bot:"자동", alba:"알바", boss:"대표" };
+  var ALBA_STEPS = { supplier_claim:"구매처 반품 신청", pickup_tracking:"회수 송장 등록", paid:"차액 입금 처리", supplier_cancel:"구매처 취소 요청", supplier_pickup:"구매처 회수 요청", reported:"미수령 접수 · 택배사 문의", coupang_return:"쿠팡 반품접수 확인" };
+  function personFor(owner, tms) {
+    var h = new Date(tms).getHours();
+    if (owner === "boss") return STAFF.boss.name;
+    for (var i = 0; i < STAFF.alba.length; i++) if (h >= STAFF.alba[i].from && h < STAFF.alba[i].to) return STAFF.alba[i].name;
+    return STAFF.alba[0].name + " (다음 근무)";
+  }
+  function inShift(owner, tms) {
+    var h = new Date(tms).getHours();
+    if (owner === "boss") return h >= STAFF.boss.from && h < STAFF.boss.to;
+    return h >= 9 && h < 19;
+  }
+  function nextShiftStart(owner, tms) {
+    var d = new Date(tms), h = d.getHours(), startH = owner === "boss" ? 8 : 9;
+    var n = new Date(d.getFullYear(), d.getMonth(), d.getDate() + (h >= startH ? 1 : 0), startH, ri(0, 25));
+    return n.getTime();
+  }
+  function newIssue(type, title, detail, owner, opts) {
+    opts = opts || {};
+    var t = D.now, wait = !inShift(owner, t);
+    var it = { id:++D.issueSeq, type:type, title:title, detail:detail || "", owner:owner, person:personFor(owner, t), status:wait ? "waiting" : "new",
+      at:t, startedAt:0, doneAt:0, dueAt:0, orderId:opts.orderId || "", priority:opts.priority || "normal", result:"", linked:!!opts.linked, day:D.dayKey };
+    if (!it.linked) {
+      var base = wait ? nextShiftStart(owner, t) : t;
+      it.dueAt = base + (owner === "boss" ? ri(20, 120) : ri(10, 50)) * MIN + ri(2, 8) * MIN;
+    }
+    D.issues.unshift(it); if (D.issues.length > 400) D.issues.length = 400;
+    D.today.issues++;
+    if (opts.feed !== false) feed(new Date(t), owner === "boss" ? "대표" : "알바", owner === "boss" ? "danger" : "warn", title + (detail ? " · " + detail : "") + " → " + it.person + (wait ? " (근무 시작 후 처리)" : ""));
+    return it;
+  }
+  function closeIssue(it, result) {
+    if (!it || it.status === "done") return;
+    it.status = "done"; it.doneAt = D.now; it.result = result || "처리 완료"; if (!it.startedAt) it.startedAt = it.at;
+    D.today.issuesDone++;
+    feed(new Date(D.now), "완료", "ok", it.title + " · " + it.person + " · " + fmtDur(it.doneAt - it.at) + " 만에 " + it.result);
+  }
+  function findIssue(id) { for (var i = 0; i < D.issues.length; i++) if (D.issues[i].id === id) return D.issues[i]; return null; }
+  var ISSUE_RESULTS = {
+    "품절 확인":["구매처 재고 확인 · 정상 출고", "대체 구매처로 발주 변경", "품절 → 취소 안내 완료"],
+    "리뷰 답변":["답변 등록 완료", "사과 답변 + 재발송 제안", "답변 등록 · 대표 보고"],
+    "출고 지연 확인":["구매처 확인 · 오늘 출고", "송장 수동 등록", "내일 출고 확정 · 고객 안내"],
+    "매입가 상승 검토":["판매가 500원 인상", "가격 유지 · 마진 감수", "구매처 변경 지시"],
+    "역마진 주문 확인":["구매처 협의 · 단가 인하", "정상 발주(리뷰 목적)", "취소 처리"],
+    "정산 대조":["쿠팡 정산 내역 일치", "차액 12,400원 문의 등록"],
+    "대체 소싱 결정":["팜허브로 변경", "당분간 판매 중지"]
+  };
+  function runIssues(tms) {
+    for (var i = 0; i < D.issues.length; i++) {
+      var it = D.issues[i]; if (it.status === "done" || it.linked) continue;
+      if (it.status === "waiting" && inShift(it.owner, tms)) { it.status = "new"; it.person = personFor(it.owner, tms); }
+      if (it.status === "new" && it.dueAt && tms >= it.at + ri(2, 8) * MIN && inShift(it.owner, tms)) { it.status = "working"; it.startedAt = tms; }
+      if ((it.status === "working" || it.status === "new") && it.dueAt && tms >= it.dueAt) {
+        var rs = ISSUE_RESULTS[it.type]; closeIssue(it, rs ? pick(rs) : "처리 완료");
+        if (it.type === "품절 확인" && rnd() < 0.3) newIssue("대체 소싱 결정", "대체 소싱 결정 · " + it.detail, "알바 확인 결과 장기 품절", "boss", { priority:"high" });
+      }
+    }
+  }
+  function issueStats() {
+    var st = { bot:{ done:D.autoDone || 0, open:0 }, alba:{ done:0, open:0, ms:0, n:0 }, boss:{ done:0, open:0, ms:0, n:0 }, types:{}, created:0, done:0, open:0, waiting:0 };
+    D.issues.forEach(function (it) {
+      if (it.day !== D.dayKey && it.status === "done") return;
+      var o = st[it.owner] || st.alba, ty = st.types[it.type] || (st.types[it.type] = { type:it.type, owner:it.owner, created:0, done:0, open:0, ms:0 });
+      st.created++; ty.created++;
+      if (it.status === "done") { st.done++; ty.done++; o.done++; o.ms += it.doneAt - it.at; o.n++; ty.ms += it.doneAt - it.at; }
+      else { st.open++; ty.open++; o.open++; if (it.status === "waiting") st.waiting++; }
+    });
+    return st;
   }
 
   /* ---------- DB · 봇 · 피드 ---------- */
   function bot(key, task) { var b = D.bots[key]; if (!b) return; b.task = task; b.at = D.now; b.pulse = D.tick; }
-  function bump(kind) { D.batch[kind] = (D.batch[kind] || 0) + 1; D.batchN++; }
+  function bump(kind) { D.batch[kind] = (D.batch[kind] || 0) + 1; D.batchN++; D.autoDone = (D.autoDone || 0) + 1; }
   // 피드에 안 실린 처리까지 묶어서 한 줄로 — "자동 처리 14건 · 수집 3 · 발주 2 …"
   function flushBatch(t) {
     if (!D.batchN) return;
@@ -326,6 +423,7 @@
       var p = pick(PRODUCTS); var delta = ri(-5, 5) * 100; if (!delta) delta = 100;
       var old = p.cost; p.cost = Math.max(1000, p.cost + delta);
       D.db.sourcing.changes++; D.db.sourcing.at = t.getTime();
+      if (delta >= 400) newIssue("매입가 상승 검토", "매입가 상승 검토", p.vendor + " · " + short(p.name, 14) + " " + short(p.opt, 10) + " +" + delta + "원 (" + Math.round(delta / old * 100) + "%)", "boss");
       var map = OH.state.sourcingMap; map[p.id] = Object.assign(map[p.id] || {}, { price:p.cost, link:"", category:"" });
       bot("db", p.vendor + " · " + short(p.name, 10) + " 매입가 " + OH.comma(old) + " → " + OH.comma(p.cost));
       feed(t, "DB", "info", "매입처DB 자동 갱신 — " + p.vendor + " " + short(p.name, 14) + " " + short(p.opt, 10) + " 매입가 " + OH.comma(old) + " → " + OH.comma(p.cost) + " (" + (delta > 0 ? "+" : "") + delta + ")");
@@ -346,6 +444,19 @@
     { key:"backup", label:"로컬 백업", every:[60, 60], run:function (t) {
       D.db.backup.changes++; D.db.backup.at = t.getTime();
       feed(t, "백업", "info", "로컬 백업 스냅샷 #" + D.db.backup.changes + " 저장 (" + (1240 + ri(0, 400)) + " KB · 이 PC 안에만)");
+    } },
+    { key:"soldout", label:"품절 확인", every:[50, 140], run:function (t) {
+      var p = pick(PRODUCTS); newIssue("품절 확인", "구매처 품절 확인", p.vendor + " · " + p.name + " " + p.opt + " 재고 회신 없음", "alba");
+    } },
+    { key:"review", label:"리뷰 답변", every:[30, 70], run:function (t) {
+      var p = pick(PRODUCTS); newIssue("리뷰 답변", "낮은 평점 리뷰 답변", p.name + " " + p.opt + " · " + pick(["별 2개 '상태가 별로'", "별 1개 '배송 늦음'", "별 3개 '양이 적어요'", "별 2개 '멍든 게 섞임'"]), "alba");
+    } },
+    { key:"shipDelay", label:"출고 지연 확인", every:[40, 90], run:function (t) {
+      var cands = OH.state.orders.filter(function (o) { return o._d && o._d.stage === "ordered" && D.now - o._d.stageAt > 5 * HOUR; });
+      if (cands.length) { var o = pick(cands); newIssue("출고 지연 확인", "구매처 출고 지연 확인", o._d.p.vendor + " · " + o.productName + " · 발주 후 " + fmtDur(D.now - o._d.stageAt) + " 미출고", "alba", { orderId:o.id }); }
+    } },
+    { key:"settle", label:"정산 대조", every:[700, 900], run:function (t) {
+      newIssue("정산 대조", "쿠팡 정산 내역 대조", "지급 예정 " + OH.won(Math.round(D.today.rev * 0.88 / 1000) * 1000) + " · 수수료·배송비 확인", "boss");
     } },
     { key:"csInbound", label:"CS 유입", every:[10, 30], run:function (t) {
       var host = pickLiveOrderForCs(); if (host) openCs(host, t.getTime());
@@ -399,7 +510,7 @@
     var nInv = 0, nShp = 0, nDlv = 0;
     (D.deferred || []).forEach(function (ev) { if (ev.kind === "invoiced") nInv++; else if (ev.kind === "shipped") nShp++; else if (ev.kind === "delivered") nDlv++; });
     carry.collected += nDlv; carry.checked += nDlv; carry.ordered += nDlv; carry.invoiced += Math.max(0, nDlv - nInv); carry.shipped += Math.max(0, nDlv - nShp);
-    D.stages = carry;
+    D.stages = carry; D.autoDone = 0;
     if (D.cs) { D.cs.opened = 0; D.cs.closed = 0; D.cs.auto = 0; D.cs.human = 0; }
   }
   // 시작 시 오늘 이미 지난 시간만큼 채우기(주문 객체는 최근 것만 만들고 나머지는 집계로)
@@ -461,8 +572,23 @@
     // 시작 화면이 비지 않게: 지금까지 만든 이벤트를 시각순으로 40개만 남김
     D.feed.sort(function (a, b) { return a.t < b.t ? 1 : a.t > b.t ? -1 : b.id - a.id; });
     if (D.feed.length > 40) D.feed.length = 40;
+    seedIssues(tms);
     D.batch = {}; D.batchN = 0; D.batchFrom = tms;
-    feed(t, "시작", "ok", "자동화 관제 시작 — 오늘 " + OH.comma(D.today.cnt) + "건 · " + OH.won(D.today.rev) + " 처리 중 · 연매출 80억 페이스");
+    feed(t, "시작", "ok", "자동 운영 재개 — 오늘 " + OH.comma(D.today.cnt) + "건 · " + OH.won(D.today.rev) + " 처리 중 · 봇 5종 정상");
+  }
+
+  function seedIssues(tms) {
+    var day0 = new Date(new Date(tms).getFullYear(), new Date(tms).getMonth(), new Date(tms).getDate(), 9).getTime();
+    var span = Math.max(0, tms - day0), n = Math.round(span / HOUR * 3.2), saveNow = D.now, i;
+    var kinds = [["품절 확인", "alba", "구매처 품절 확인"], ["리뷰 답변", "alba", "낮은 평점 리뷰 답변"], ["출고 지연 확인", "alba", "구매처 출고 지연 확인"], ["회수 송장 등록", "alba", "회수 송장 등록"], ["구매처 반품 신청", "alba", "구매처 반품 신청"], ["매입가 상승 검토", "boss", "매입가 상승 검토"], ["정산 대조", "boss", "쿠팡 정산 내역 대조"], ["CS 대표 판단", "boss", "CS 판단 필요 · 차액협의"]];
+    for (i = 0; i < n; i++) {
+      var k = pick(kinds), p = pick(PRODUCTS); D.now = day0 + rnd() * span;
+      var it = newIssue(k[0], k[2], p.vendor + " · " + p.name + " " + p.opt, k[1], { feed:false });
+      if (rnd() < 0.85 || it.at < tms - 3 * HOUR) { it.startedAt = it.at + ri(2, 8) * MIN; it.doneAt = Math.min(tms - ri(1, 30) * MIN, it.startedAt + (k[1] === "boss" ? ri(20, 120) : ri(10, 50)) * MIN); if (it.doneAt > it.startedAt) { it.status = "done"; var rs = ISSUE_RESULTS[it.type]; it.result = rs ? pick(rs) : "처리 완료"; D.today.issuesDone++; } }
+      else if (it.status === "new" && rnd() < 0.5) { it.status = "working"; it.startedAt = it.at + ri(2, 8) * MIN; }
+    }
+    D.now = saveNow;
+    D.issues.sort(function (a, b) { return b.at - a.at; });
   }
 
   /* ---------- 집계(앱 오버레이용) ---------- */
@@ -540,6 +666,7 @@
     D.bots = { order:{ name:"주문봇", role:"수집·검수·발주", task:"대기", count:0 }, invoice:{ name:"송장봇", role:"송장 등록·발송", task:"대기", count:0 }, cs:{ name:"CS봇", role:"응대·접수·회수", task:"대기", count:0 }, db:{ name:"DB봇", role:"가격·라인업·백업", task:"대기", count:0 }, security:{ name:"보안봇", role:"블랙리스트·마스킹", task:"대기", count:0 } };
     D.db = { sourcing:{ label:"매입처DB", rows:PRODUCTS.length, changes:0, at:0 }, lineup:{ label:"라인업", rows:PRODUCTS.length, changes:0, at:0 }, blacklist:{ label:"블랙리스트", rows:DEMO_BLACKLIST.length + 116, changes:0, at:0 }, fees:{ label:"수수료표", rows:13, changes:0, at:0 }, daily:{ label:"일별매출", rows:0, changes:0, at:0 }, backup:{ label:"로컬 백업", rows:0, changes:0, at:0 } };
     D.cs = { opened:0, closed:0, auto:0, human:0, open:0 }; D.deferred = []; D.batch = {}; D.batchN = 0; D.batchFrom = 0; D.lastReal = 0; D.feedDayStart = 0;
+    D.issues = []; D.issueSeq = 0; D.autoDone = 0; D.issueFilter = "open";
     PRODUCTS.forEach(function (p, i) { p.cost = BASE_COST[i]; });
     if ($pane) { $pane.innerHTML = ""; $pane.classList.remove("paused"); $pane = null; }
     Object.keys(LEAD).forEach(function (k) { LEAD[k] = []; });
@@ -556,10 +683,10 @@
     scheduleJobs(D.now);
     try { sessionStorage.setItem("oh_demo", "1"); sessionStorage.setItem("oh_demo_speed", String(D.speed)); } catch (e) {}
     OH.show("dashboard"); OH.showDashboard();
-    var b = document.getElementById("btn-demo"); if (b) { b.textContent = "데모 종료"; b.classList.add("on"); }
+    var b = document.getElementById("btn-demo"); if (b) { b.textContent = "자동 운영 끄기"; b.classList.add("on"); }
     document.body.classList.add("demo-on");
     D.timer = setInterval(tickReal, 1000);
-    OH.toast("자동화 관제 데모를 시작했어요 — 실제 데이터는 잠시 보관됩니다");
+    OH.toast("자동 운영을 시작했어요 — 기존 데이터는 잠시 보관됩니다");
   }
   function stop() {
     if (!D.active) return;
@@ -567,7 +694,7 @@
     try { sessionStorage.removeItem("oh_demo"); } catch (e) {}
     var st = OH.state, snap = null;
     try { snap = JSON.parse(D.snapshot); } catch (e) {}
-    if (!snap) { OH.toast("보관한 실제 데이터를 읽지 못해 화면을 새로고침합니다"); setTimeout(function () { location.reload(); }, 600); return; }
+    if (!snap) { OH.toast("보관한 데이터를 읽지 못해 화면을 새로고침합니다"); setTimeout(function () { location.reload(); }, 600); return; }
     st.orders = snap.orders || []; st.ops = snap.ops; st.sourcingMap = snap.sourcingMap || {}; st.blacklist = snap.blacklist || []; st.ui = snap.ui || st.ui; st.deleted = snap.deleted || [];
     st.orders.forEach(function (o) { OH.computeMargin(o); });
     D.snapshot = null; D.tween = {}; if (D.raf) { cancelAnimationFrame(D.raf); D.raf = null; }
@@ -576,10 +703,10 @@
     if (OH.reloadSettings) OH.reloadSettings();   // 데모 중 만진 규칙·연동 설정은 저장되지 않았으므로 저장본으로 되돌림
     if (OH.persist) OH.persist();   // 복원된 실제 데이터를 다시 저장해 메모리와 localStorage 를 맞춤
     if (st.ui.tab === "autopilot") st.ui.tab = "dashboard";
-    var b = document.getElementById("btn-demo"); if (b) { b.textContent = "자동화 데모"; b.classList.remove("on"); }
+    var b = document.getElementById("btn-demo"); if (b) { b.textContent = "자동 운영"; b.classList.remove("on"); }
     document.body.classList.remove("demo-on"); document.body.classList.remove("ap-tab"); setPresent(false);
     if (st.orders.length) OH.showDashboard(); else { OH.show("upload"); OH.render(); }
-    OH.toast("데모를 종료하고 원래 데이터로 돌아왔어요");
+    OH.toast("자동 운영을 끄고 기존 데이터로 돌아왔어요");
   }
   function toggle() { if (D.active) stop(); else start(); }
   function setSpeed(s) { D.speed = s; try { sessionStorage.setItem("oh_demo_speed", String(s)); } catch (e) {} }
@@ -601,6 +728,7 @@
     if (document.hidden) return;                       // 숨은 탭에서는 그리지 않음(시뮬레이션만 계속)
     var tab = OH.state.ui.tab;
     if (tab === "autopilot") renderPane();
+    else if (tab === "issues") { document.body.classList.remove("ap-tab"); if (D.tick % 2 === 0) renderIssuesPane(); }
     else { document.body.classList.remove("ap-tab"); if (D.tick % 3 === 0 && !userIsEditing()) OH.render(); }
     if (D.tick % 5 === 0) renderTabsOnly();
   }
@@ -614,7 +742,7 @@
     for (i = 0; i < n; i++) makeOrder(new Date(ts[i]));
     var orders = OH.state.orders;
     for (i = 0; i < orders.length; i++) if (orders[i]._d) advanceOrder(orders[i], D.now);
-    runJobs(D.now); runDeferred(D.now);
+    runJobs(D.now); runDeferred(D.now); runIssues(D.now);
     if (orders.length > 320) evict(orders);
   }
   // 시트 창(최근 300건) 밖으로 나가는 주문은 '자동 보관' — 남은 단계(발송·배송완료)는 예약 이벤트로 집계만 이어감
@@ -669,7 +797,7 @@
     $pane.innerHTML =
       '<div class="ap">' +
         '<div class="ap-head">' +
-          '<div class="ap-title"><span class="ap-live"><i></i>LIVE</span><div><h2>오토파일럿 관제</h2><small>쿠팡 위탁판매 자동화 · 주문 · CS · 매출 · DB</small></div><span class="ap-sim">시뮬레이션 · 합성 데이터</span>' +
+          '<div class="ap-title"><span class="ap-live"><i></i>LIVE</span><div><h2>오토파일럿 관제</h2><small>루루농장 · 쿠팡 위탁판매 자동 운영 · 주문 · CS · 매출 · DB</small></div>' +
             '<span class="ap-botdots">' + ["주문봇", "송장봇", "CS봇", "DB봇", "보안봇"].map(function (n) { return '<b><i></i>' + n + '</b>'; }).join("") + '</span></div>' +
           '<div class="ap-clock"><b data-k="clock">--:--:--</b><span data-k="date"></span></div>' +
           '<div class="ap-ctl">' +
@@ -695,6 +823,7 @@
             '<section class="ap-card ap-db"><header><h3>DB 자동 관리</h3><span data-k="dbSum"></span></header><div data-k="db"></div></section>' +
           '</div>' +
         '</div>' +
+        '<div class="ap-work" data-k="work"></div>' +
         '<div class="ap-charts">' +
           '<section class="ap-card"><header><h3>최근 30일 매출</h3><span data-k="c30"></span></header><div class="ap-chart" data-k="chart30"></div></section>' +
           '<section class="ap-card"><header><h3>오늘 시간대별</h3><span data-k="cH">어제 대비</span></header><div class="ap-chart" data-k="chartH"></div></section>' +
@@ -778,7 +907,7 @@
     setText("human", k.human); var hEl = el('[data-k="human"]'); if (hEl) hEl.classList.toggle("hot", k.human > 0);
     var arc = el('[data-k="ringArc"]'); if (arc) arc.setAttribute("stroke-dasharray", Math.min(100, k.ytd.rev / YEAR_TARGET * 100).toFixed(1) + " 100");
     setText("ytdPct", (k.ytd.rev / YEAR_TARGET * 100).toFixed(1)); setText("cH", "어제 같은 시각 대비 " + (k.vsY >= 0 ? "+" : "") + k.vsY.toFixed(1) + "%");
-    renderPipe(k); renderFeed(); renderCs(); renderBots(); renderDb();
+    renderPipe(k); renderFeed(); renderCs(); renderBots(); renderDb(); renderWork();
     if (D.tick % 3 === 0 || !el('[data-k="chart30"] svg')) renderCharts(k);
   }
   var ICON = {
@@ -858,6 +987,68 @@
     }).join("");
     setText("dbSum", "오늘 자동 갱신 " + changes + "건");
   }
+  function statusLabel(it) { return it.status === "done" ? "완료" : it.status === "working" ? "처리 중" : it.status === "waiting" ? "근무 대기" : "접수"; }
+  function openIssues(owner) { return D.issues.filter(function (it) { return it.status !== "done" && (!owner || it.owner === owner); }); }
+  function renderWork() {
+    var box = el('[data-k="work"]'); if (!box) return;
+    var st = issueStats(), t = D.now;
+    function col(owner, title, who, sub, items, done, open) {
+      return '<section class="ap-card ap-wcol ' + owner + '"><header><h3>' + title + '</h3><span>' + esc(who) + '</span></header>' +
+        '<div class="ap-wnum"><b>' + OH.comma(done) + '</b><span>오늘 처리</span><b class="' + (open ? "hot" : "") + '">' + open + '</b><span>대기</span></div>' +
+        '<div class="ap-wsub">' + sub + '</div>' +
+        '<ul>' + (items.length ? items.map(function (it) { return '<li class="' + it.status + '"><i></i><div><span>' + esc(it.title) + '</span><em>' + esc(it.person) + ' · ' + statusLabel(it) + ' · ' + fmtDur(t - it.at) + '</em></div></li>'; }).join("") : '<li class="none">대기 중인 일이 없습니다</li>') + '</ul></section>';
+    }
+    var botItems = [D.bots.order, D.bots.cs, D.bots.db].map(function (b) { return { title:b.task, person:b.name, status:"working", at:t - 30000 }; });
+    var albaNow = personFor("alba", t), bossNow = STAFF.boss.name;
+    box.innerHTML = '<div class="ap-work-head"><h3>업무 배분 · 대응 현황</h3><span>봇이 못 하는 일은 알바와 대표에게 자동 배정됩니다</span><span class="sp"></span><button type="button" class="btn sm" data-ap-go="issues">이슈 대응 전체 보기</button></div><div class="ap-work-grid">' +
+      col("bot", "자동 처리 (봇)", "봇 5종", "수집·검수·발주·송장·CS 응대·DB 갱신", botItems, st.bot.done, 0) +
+      col("alba", "알바 업무", (inShift("alba", t) ? "근무 중 · " + albaNow : "근무 외 · 09시 시작"), "회수 송장 · 구매처 반품/취소 · 차액 입금 · 품절 확인 · 리뷰 답변 · 출고 확인", openIssues("alba").slice(0, 4), st.alba.done, st.alba.open) +
+      col("boss", "대표 판단", (inShift("boss", t) ? "확인 가능 · " + bossNow : "근무 외"), "블랙리스트 보류 · CS 한도 초과 · 매입가 급등 · 역마진 · 정산 대조", openIssues("boss").slice(0, 4), st.boss.done, st.boss.open) +
+    '</div>';
+  }
+  // 이슈 대응 탭(밝은 테마, 앱 표 스타일)
+  function renderIssuesPane() {
+    var pane = document.getElementById("pane-issues"); if (!pane || !D.active) return;
+    var st = issueStats(), t = D.now, f = D.issueFilter || "open";
+    var list = D.issues.filter(function (it) {
+      if (f === "open") return it.status !== "done";
+      if (f === "done") return it.status === "done" && it.day === D.dayKey;
+      if (f === "alba" || f === "boss") return it.owner === f && it.status !== "done";
+      return true;
+    }).slice(0, 80);
+    function avg(o) { return o.n ? fmtDur(o.ms / o.n) : "—"; }
+    var types = Object.keys(st.types).map(function (k) { return st.types[k]; }).sort(function (a, b) { return b.created - a.created; });
+    var chip = function (key, label, n) { return '<button type="button" class="pill' + (f === key ? " on" : "") + '" data-issue-filter="' + key + '">' + label + (n != null ? ' <b>' + n + '</b>' : "") + '</button>'; };
+    pane.innerHTML =
+      '<div class="ops-head"><div><h2>이슈 대응</h2><p>자동 처리에서 벗어난 일(사람 손이 필요한 일)이 알바·대표에게 배정되고, 처리 현황이 여기에 모입니다.</p></div><div class="spacer"></div><button class="btn sm" type="button" data-ap-go="autopilot">관제 화면</button></div>' +
+      '<div class="ov-grid issues-kpi">' +
+        ovCardL("오늘 발생", st.created + "건") + ovCardL("처리 완료", st.done + "건", "pos") + ovCardL("대기·진행", st.open + "건", st.open ? "neg" : "") +
+        ovCardL("알바 처리", st.alba.done + "건 · 평균 " + avg(st.alba)) + ovCardL("대표 판단", st.boss.done + "건 · 평균 " + avg(st.boss)) + ovCardL("자동 처리", OH.comma(st.bot.done) + "건") +
+      '</div>' +
+      '<div class="issues-filters">' + chip("open", "대기·진행", st.open) + chip("alba", "알바", st.alba.open) + chip("boss", "대표", st.boss.open) + chip("done", "오늘 완료", st.done) + chip("all", "전체") + '</div>' +
+      '<div class="data-scroll"><table class="data issues"><thead><tr><th>시각</th><th>구분</th><th>내용</th><th>담당</th><th>상태</th><th class="num">경과</th><th>결과</th></tr></thead><tbody>' +
+        (list.length ? list.map(function (it) {
+          var when = new Date(it.at), tm = pad(when.getHours()) + ":" + pad(when.getMinutes()) + (it.day !== D.dayKey ? " (" + it.day.slice(5) + ")" : "");
+          return '<tr class="st-' + it.status + (it.priority === "high" ? " pri" : "") + '"><td>' + tm + '</td><td><span class="owner-chip ' + it.owner + '">' + OWNER_LABEL[it.owner] + '</span> ' + esc(it.type) + '</td><td style="white-space:normal;min-width:260px">' + esc(it.title) + (it.detail ? '<div class="muted-note">' + esc(it.detail) + '</div>' : "") + '</td><td>' + esc(it.person) + '</td><td><span class="status-chip ' + it.status + '">' + statusLabel(it) + '</span></td><td class="num">' + fmtDur((it.status === "done" ? it.doneAt : t) - it.at) + '</td><td style="white-space:normal">' + esc(it.result || (it.status === "waiting" ? "근무 시작 후 처리" : "")) + '</td></tr>';
+        }).join("") : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">해당하는 이슈가 없습니다</td></tr>') +
+      '</tbody></table></div>' +
+      '<div class="panel-head monthly-head"><h2>유형별 대응 현황 (오늘)</h2><span class="muted-note">평균 대응 = 발생부터 완료까지</span></div>' +
+      '<div class="data-scroll monthly-scroll"><table class="data"><thead><tr><th>유형</th><th>담당</th><th class="num">발생</th><th class="num">완료</th><th class="num">대기</th><th class="num">평균 대응</th></tr></thead><tbody>' +
+        (types.length ? types.map(function (ty) { return '<tr><td>' + esc(ty.type) + '</td><td>' + OWNER_LABEL[ty.owner] + '</td><td class="num">' + ty.created + '</td><td class="num">' + ty.done + '</td><td class="num">' + ty.open + '</td><td class="num">' + (ty.done ? fmtDur(ty.ms / ty.done) : "—") + '</td></tr>'; }).join("") : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">아직 발생한 이슈가 없습니다</td></tr>') +
+      '</tbody></table></div>' +
+      '<div class="panel-head monthly-head"><h2>담당별 근무·배정</h2></div>' +
+      '<div class="ov-grid staff-grid">' +
+        ovCardL("봇 (24시간)", "수집·검수·발주·송장·CS 1차 응대·DB 갱신·백업") +
+        ovCardL("알바 오전 · " + STAFF.alba[0].name, "09~14시 · 회수 송장 · 구매처 반품/취소 · 차액 입금 · 리뷰 답변") +
+        ovCardL("알바 오후 · " + STAFF.alba[1].name, "14~19시 · 품절 확인 · 출고 지연 확인 · 미수령 접수") +
+        ovCardL("대표", "08~22시 · 블랙리스트 보류 · CS 한도 초과 · 매입가 급등 · 역마진 · 정산") +
+      '</div>';
+  }
+  function ovCardL(k, v, cls) { return '<div class="ov-card"><div class="k">' + esc(k) + '</div><div class="v' + (cls ? " " + cls : "") + '">' + esc(v) + '</div></div>'; }
+  document.addEventListener("click", function (e) {
+    var f = e.target.closest("[data-issue-filter]"); if (f) { D.issueFilter = f.getAttribute("data-issue-filter"); renderIssuesPane(); return; }
+    var g = e.target.closest("#pane-issues [data-ap-go]"); if (g) OH.setTab(g.getAttribute("data-ap-go"));
+  });
   function renderCharts(k) {
     var rows = dayRows(), last30 = rows.slice(-30), max = Math.max.apply(null, last30.map(function (r) { return r.rev; })) || 1;
     var W = 600, H = 150, gap = 4, bw = (W - gap * 29) / 30;
@@ -897,7 +1088,7 @@
     start:start, stop:stop, toggle:toggle, setSpeed:setSpeed,
     now:function () { return D.active ? D.now : Date.now(); },
     dailyRows:function () { return dayRows().slice(-60); }, monthlyRows:monthRows, overview:overview, periodRows:periodRows, kpis:kpis,
-    renderPane:renderPane, state:D
+    renderPane:renderPane, renderIssuesPane:renderIssuesPane, state:D
   };
   global.Demo = api;
 

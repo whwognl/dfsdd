@@ -34,7 +34,10 @@ def num(v):
 def clean_name(s):
     s = str(s or "").translate(str.maketrans({"（": "(", "）": ")", "，": ",", "\u3000": " ", "\xa0": " "}))
     s = re.sub(r"\[[^\]]*[\]\}]", " ", s)                                   # [#15] · [특허농법] 같은 대괄호 태그 제거
-    s = re.sub(r"재구매폭주|초고당도\s*brix|초고당도|프리미엄|제주직송|전국최저특가|전국최저마진|국내산|산지직송|당일수확|무료배송", " ", s, flags=re.I)
+    s = re.sub(r"재구매폭주|초고당도\s*brix|초고당도|프리미엄|제주직송|전국최저특가|전국최저마진|국내산|산지직송|당일수확|무료배송|엄격선별|해풍맞고자란|시원달큰|남해직송|나주직송|직접조업한|선주직송|쫄깃신선꽁치|톡쏘는|시원아삭|꿀뚝뚝\s*brix|가정용|실속|햇\b|PBF|팡이농장", " ", s, flags=re.I)
+    s = re.sub(r"/.*$", " ", s)                                              # '/ 뒤' 부연 제거
+    s = re.sub(r",\s*\d+(\.\d+)?\s*(kg|g|개|박스|미|수|팩)?\b.*$", " ", s, flags=re.I)   # 뒤에 붙은 용량
+    s = re.sub(r"\(\s*\d+(\.\d+)?\s*(kg|g)\s*\)", " ", s, flags=re.I)
     s = s.replace("_", "")
     s = tidy(s)
     s = s[:24]
@@ -82,14 +85,95 @@ for r in it:
 
 products = []
 for (name, opt), p in prod.items():
-    if p["n"] < 5 or not p["price"]: continue
+    if p["n"] < 3 or not p["price"]: continue
+    if re.search(r"보스턴백|model|가방|케이스", name, re.I) or len(name) < 2: continue
     price = statistics.median(p["price"]); cost = statistics.median(p["cost"]) if p["cost"] else round(price * 0.72, -1)
     products.append({
         "name": name, "opt": opt, "n": p["n"], "price": int(round(price, -1)), "cost": int(round(cost, -1)),
         "vendor": (p["vendor"].most_common(1) or [("", 0)])[0][0], "courier": (p["courier"].most_common(1) or [("", 0)])[0][0],
         "qty": {str(k): v for k, v in p["qty"].most_common(4)}
     })
-products.sort(key=lambda x: -x["n"]); products = products[:80]
+products.sort(key=lambda x: -x["n"]); products = products[:160]
+seen_keys = set((p["name"], p["opt"]) for p in products)
+
+# ---------- 단가비교: 최저가 구매처와 함께 (운송장에 없는 상품 보강) ----------
+GRADE = re.compile(r"^(대과|소과|중과|로얄과|특대|상|중|하)\b")
+def catalog_from(sheet):
+    try: ws = wb[sheet]
+    except KeyError: return []
+    rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 3: return []
+    vend = [str(v).strip() if v else "" for v in rows[1]]
+    cur, out = None, []
+    for r in rows[2:]:
+        if r[1]: cur = re.sub(r"\s+", " ", str(r[1])).strip()
+        if not cur or not r[2] or not isinstance(r[21], (int, float)) or r[21] <= 0: continue
+        prices = {vend[i]: r[i] for i in range(27, min(len(r), 83)) if vend[i] and isinstance(r[i], (int, float)) and r[i] > 0}
+        v = min(prices, key=prices.get) if prices else ""
+        name = re.sub(r"\(.*?\)|\[.*?\]|/\s*[가-힣A-Za-z]+$", " ", cur)
+        for vn in list(vendors.keys()) + ["업푸르트", "웰그린", "제이비티엠", "품담", "올바른푸드", "하루팜", "팡이농장", "덤덤몰", "최고집", "늘푸른우리", "팜허브"]:
+            name = name.replace(vn, " ")
+        name = tidy(re.sub(r"\s+", " ", name)).strip(" /")
+        if len(name) < 2 or GRADE.match(name): continue
+        opt = str(r[2]).strip(); opt = re.sub(r"^(\d+)\.0$", r"\1개", opt)
+        low = r[3] if isinstance(r[3], (int, float)) and 0 < r[3] < r[21] else round(r[21] * 0.72, -1)
+        out.append({"name": name[:24], "opt": opt[:24], "n": 40, "price": int(round(r[21], -1)), "cost": int(round(low, -1)), "vendor": norm_vendor(v) or "산지농가", "courier": "CJ대한통운", "qty": {"1": 9, "2": 1}})
+    return out
+for extra in catalog_from("단가비교"):
+    k = (extra["name"], extra["opt"])
+    if k in seen_keys: continue
+    seen_keys.add(k); products.append(extra)
+
+# ---------- 계절·명절 상품 보강 (실제 시세 수준의 가격, 구매처는 운영 중인 거래처 순환) ----------
+VENDOR_CYCLE = [v for v, _ in vendors.most_common(12)] or ["성공푸드"]
+def cur(name, opt, price, cost, n, courier="CJ대한통운", season=None, vendor=None):
+    global _vi
+    v = vendor or VENDOR_CYCLE[_vi % len(VENDOR_CYCLE)]; _vi += 1
+    d = {"name": name, "opt": opt, "n": n, "price": price, "cost": cost, "vendor": v, "courier": courier, "qty": {"1": 9, "2": 1}}
+    if season: d["season"] = season
+    return d
+_vi = 0
+AUTUMN = {8: 0.6, 9: 1.6, 10: 1.4, 11: 1.0}
+CURATED = [
+    cur("햅쌀 (2026년산)", "10kg", 34900, 27500, 520, season={9: 1.4, 10: 1.6, 11: 1.3}),
+    cur("햅쌀 (2026년산)", "20kg", 62900, 50800, 310, season={9: 1.4, 10: 1.6, 11: 1.3}),
+    cur("신동진 쌀", "10kg", 32900, 26100, 260), cur("신동진 쌀", "20kg", 59900, 48500, 150),
+    cur("현미", "10kg", 36900, 29400, 90), cur("찹쌀", "5kg", 24900, 18900, 70),
+    cur("추석 선물세트 사과·배 혼합", "5kg (사과 5·배 4)", 49900, 36500, 240, season=AUTUMN),
+    cur("추석 선물세트 나주배", "7.5kg (9~11과)", 59900, 44000, 180, season=AUTUMN),
+    cur("문경 부사 사과", "3kg (12~15과)", 21900, 15400, 330, season=AUTUMN), cur("문경 부사 사과", "5kg (17~22과)", 32900, 23800, 210, season=AUTUMN),
+    cur("홍로 사과", "2.5kg (가정용)", 16900, 11600, 260, season={8: 1.2, 9: 1.8, 10: 0.8}),
+    cur("샤인머스캣", "2kg (2~3송이)", 26900, 19200, 420, season={8: 1.2, 9: 1.7, 10: 1.5, 11: 0.8}),
+    cur("샤인머스캣", "4kg", 48900, 36000, 160, season={8: 1.2, 9: 1.7, 10: 1.5, 11: 0.8}),
+    cur("캠벨 포도", "3kg", 19900, 13800, 230, season={8: 1.5, 9: 1.6, 10: 0.7}),
+    cur("거봉", "2kg", 22900, 16100, 150, season={8: 1.4, 9: 1.5}),
+    cur("무화과", "1kg (12~16과)", 18900, 12900, 170, season={8: 1.5, 9: 1.6, 10: 0.6}),
+    cur("황도 복숭아", "3kg (10~13과)", 24900, 17200, 140, season={7: 1.6, 8: 1.8, 9: 0.9}),
+    cur("공주 알밤", "2kg (특)", 19900, 13600, 210, season=AUTUMN), cur("건대추", "1kg", 21900, 15100, 120, season=AUTUMN),
+    cur("성주 참외", "3kg", 19900, 13300, 60, season={5: 1.8, 6: 1.9, 7: 1.4, 8: 0.6}),
+    cur("논산 설향 딸기", "1kg (2팩)", 21900, 15900, 60, season={12: 1.8, 1: 2.0, 2: 2.0, 3: 1.6, 4: 1.0}),
+    cur("제주 한라봉", "3kg", 24900, 17500, 60, season={1: 1.8, 2: 1.9, 3: 1.4}),
+    cur("골드키위", "1.5kg (12~15과)", 17900, 12800, 190), cur("블루베리", "500g", 15900, 11200, 110),
+    cur("바나나", "1.3kg (1송이)", 5990, 4100, 380), cur("아보카도", "5개입", 9900, 7000, 160),
+    cur("무항생제 계란", "30구 (대란)", 9990, 7300, 460), cur("무항생제 계란", "60구", 18900, 14000, 200),
+    cur("햇양파", "5kg", 8990, 5900, 300), cur("깐마늘", "1kg", 11900, 8200, 210), cur("대파", "1kg", 4990, 3300, 180),
+    cur("수미 감자", "5kg", 12900, 8700, 240), cur("밤호박 단호박", "3kg (3~4개)", 12900, 8800, 200, season={8: 1.4, 9: 1.5, 10: 1.2}),
+    cur("초당 옥수수", "10개", 14900, 9800, 90, season={6: 1.8, 7: 1.9, 8: 1.3}),
+    cur("애호박", "3개", 5490, 3600, 150), cur("오이", "10개", 7990, 5300, 130), cur("파프리카", "1kg", 8990, 6100, 110),
+    cur("상추", "500g", 4990, 3200, 120), cur("깻잎", "200g", 3990, 2500, 100), cur("청양고추", "500g", 6990, 4600, 90),
+    cur("양배추", "2통", 6990, 4500, 110), cur("당근", "3kg", 8990, 5900, 90), cur("브로콜리", "3개", 7990, 5200, 80),
+    cur("가을 배추", "3포기", 14900, 9800, 130, season={10: 1.6, 11: 2.0}), cur("총각무", "2kg", 7990, 5100, 70, season={10: 1.4, 11: 1.6}),
+    cur("표고버섯", "1kg", 15900, 11000, 120), cur("새송이버섯", "1kg", 6990, 4600, 100), cur("느타리버섯", "1kg", 6990, 4400, 80),
+    cur("완도 재래김", "50봉 (도시락김)", 14900, 10200, 260), cur("국물용 멸치", "1.5kg", 24900, 17800, 90),
+    cur("제주 은갈치", "4마리 (특대)", 39900, 29500, 70), cur("손질 고등어", "10팩", 27900, 20300, 110),
+    cur("영광 굴비", "10미 (선물세트)", 59900, 44500, 60, season=AUTUMN),
+    cur("횡성 한우 불고기", "1kg (1등급)", 42900, 33800, 90, season=AUTUMN), cur("돼지 삼겹살", "1kg", 21900, 16100, 130),
+    cur("떡국 떡", "2kg", 12900, 9000, 60, season={1: 1.8, 2: 1.6}), cur("송편 (모둠)", "1kg", 14900, 10100, 120, season={9: 2.2, 10: 0.4}),
+]
+for extra in CURATED:
+    k = (extra["name"], extra["opt"])
+    if k in seen_keys: continue
+    seen_keys.add(k); products.append(extra)
 # 거래처가 빈 상품은 같은 상품명의 최다 거래처, 없으면 '산지농가'
 by_name = collections.defaultdict(collections.Counter)
 for p in products:

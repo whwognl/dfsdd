@@ -1099,16 +1099,16 @@
     { key:"profit",    label:"수익분석" }
   ];
   var TAB_PANE = {
-    autopilot:"autopilot", process:"process", dashboard:"dashboard", orders:"orders", cs:"cs", blacklist:"blacklist", lineup:"lineup", sourcing:"sourcing",
+    autopilot:"autopilot", issues:"issues", process:"process", dashboard:"dashboard", orders:"orders", cs:"cs", blacklist:"blacklist", lineup:"lineup", sourcing:"sourcing",
     calc:"calc", daily:"daily", invoice:"invoice", loss:"loss", journal:"journal", accounts:"accounts", cards:"cards", profit:"profit"
   };
 
   function renderTabs() {
     var nav = $("#tabnav"); if (!nav) return;
     var active = state.ui.tab || "dashboard";
-    var tabs = demoOn() ? [{ key:"autopilot", label:"자동화 관제", live:true }].concat(TABS) : TABS;
+    var tabs = demoOn() ? [{ key:"autopilot", label:"자동화 관제", live:true }, { key:"issues", label:"이슈 대응" }].concat(TABS) : TABS;
     nav.innerHTML = tabs.map(function (t) {
-      var n = t.key === "blacklist" ? riskOrders().length : (t.key === "cs" ? csOrders().length : 0);
+      var n = t.key === "blacklist" ? riskOrders().length : (t.key === "cs" ? csOrders().length : (t.key === "issues" && window.Demo ? window.Demo.state.issues.filter(function (it) { return it.status !== "done"; }).length : 0));
       return '<button class="tab' + (t.key === active ? " on" : "") + (t.soon ? " soon" : "") + (t.live ? " live" : "") +
         '" data-tab="' + t.key + '">' + esc(t.label) + (n ? '<span class="tab-count' + (t.key === "blacklist" ? " bad" : "") + '">' + n + '</span>' : "") + '</button>';
     }).join("");
@@ -1124,12 +1124,13 @@
     var tab = state.ui.tab || "dashboard";
     if (!TAB_PANE[tab]) { tab = "dashboard"; state.ui.tab = tab; }
     var pane = TAB_PANE[tab];
-    if (tab === "autopilot" && !demoOn()) { tab = "dashboard"; state.ui.tab = tab; pane = TAB_PANE[tab]; }
-    ["autopilot", "process", "dashboard", "orders", "cs", "blacklist", "lineup", "sourcing", "calc", "daily", "invoice", "loss", "journal", "accounts", "cards", "profit"].forEach(function (p) {
+    if ((tab === "autopilot" || tab === "issues") && !demoOn()) { tab = "dashboard"; state.ui.tab = tab; pane = TAB_PANE[tab]; }
+    ["autopilot", "issues", "process", "dashboard", "orders", "cs", "blacklist", "lineup", "sourcing", "calc", "daily", "invoice", "loss", "journal", "accounts", "cards", "profit"].forEach(function (p) {
       var el = $("#pane-" + p); if (el) el.classList.toggle("hidden", p !== pane);
     });
     renderSummary();   // #summary(대시보드 패널) 갱신 — 다른 탭이면 숨겨져 있어도 무해
     if (tab === "autopilot") { if (window.Demo) window.Demo.renderPane(); }
+    else if (tab === "issues") { if (window.Demo) window.Demo.renderIssuesPane(); }
     else if (tab === "process") renderProcessPane();
     else if (tab === "dashboard") renderOverview();
     else if (tab === "orders") renderOrdersPane();
