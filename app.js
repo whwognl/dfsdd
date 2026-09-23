@@ -343,7 +343,7 @@
     state.rules = saved || deepCopy(window.DEFAULT_RULES);
     loadRulesDefaults();
   }
-  function saveRules() { safeSetItem(LS.rules, JSON.stringify(state.rules)); }
+  function saveRules() { if (demoOn()) return; safeSetItem(LS.rules, JSON.stringify(state.rules)); }   // 데모 중엔 저장 안 함(종료 시 다시 불러옴)
   function deepCopy(o) { return JSON.parse(JSON.stringify(o)); }
 
   /* =====================================================================
@@ -809,6 +809,7 @@
     try { localStorage.setItem(LS.sourcingMap, JSON.stringify(state.sourcingMap || {})); } catch (e) {}
   }
   function saveDeleted() {
+    if (demoOn()) return;   // 데모 중 실제 휴지통 덮어쓰기 금지
     try { localStorage.setItem(LS.deleted, JSON.stringify(state.deleted || [])); } catch (e) {}
   }
   function loadDeleted() {
@@ -4205,7 +4206,7 @@
       if (c) state.cloud = Object.assign(state.cloud, c);
     } catch (e) {}
   }
-  function saveCloud() { safeSetItem(LS.cloud, JSON.stringify(state.cloud)); }
+  function saveCloud() { if (demoOn()) return; safeSetItem(LS.cloud, JSON.stringify(state.cloud)); }
 
   function extractSheetId(s) {
     s = String(s || "").trim();
@@ -4674,7 +4675,8 @@
     blankOrder: blankOrder, computeMargin: computeMargin, normalizeOrder: normalizeOrder, defaultOps: defaultOps, newId: newId,
     csOpen: csOpen, csSync: csSync, csAutoMemo: csAutoMemo, csStepsFor: csStepsFor, CS_STEPS: CS_STEPS, CS_LEDGER_KINDS: CS_LEDGER_KINDS,
     toast: toast, won: won, comma: comma, esc: esc, fmtPct: fmtPct, todayKey: todayKey, dateStampHuman: dateStampHuman, riskOrders: riskOrders,
-    persist: function () { persist(); }
+    persist: function () { persist(); },
+    reloadSettings: function () { loadRules(); loadCloud(); }
   };
   document.addEventListener("DOMContentLoaded", init);
 })();

@@ -568,6 +568,7 @@
     D.snapshot = null; D.tween = {}; if (D.raf) { cancelAnimationFrame(D.raf); D.raf = null; }
     if ($pane) { $pane.innerHTML = ""; $pane.classList.remove("paused"); $pane = null; }
     try { sessionStorage.removeItem("oh_demo_speed"); } catch (e) {}
+    if (OH.reloadSettings) OH.reloadSettings();   // 데모 중 만진 규칙·연동 설정은 저장되지 않았으므로 저장본으로 되돌림
     if (OH.persist) OH.persist();   // 복원된 실제 데이터를 다시 저장해 메모리와 localStorage 를 맞춤
     if (st.ui.tab === "autopilot") st.ui.tab = "dashboard";
     var b = document.getElementById("btn-demo"); if (b) { b.textContent = "자동화 데모"; b.classList.remove("on"); }
