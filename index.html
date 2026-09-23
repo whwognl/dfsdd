@@ -541,6 +541,7 @@
   /* ================= 자동화 관제(데모) ================= */
   .btn.demo{border-color:var(--brand-line); color:var(--brand); background:var(--brand-bg)}
   .btn.demo.on{background:var(--brand); color:#fff; border-color:var(--brand)}
+  body.demo-on #btn-security-clear, body.demo-on #btn-import-workbook, body.demo-on #btn-rules-default{display:none}
   .tab.live{color:var(--brand); font-weight:var(--w-semi)}
   .tab.live::before{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:#34c759; margin-right:6px; vertical-align:1px}
   @media(max-width:1366px){.tabs .tab{padding:9px 8px; font-size:13px}}
@@ -588,6 +589,8 @@
   .ap-stage .ic svg{width:19px; height:19px; fill:none; stroke:var(--ap-blue); stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
   .ap-stage:nth-child(3) .ic svg{stroke:var(--ap-ok)} .ap-stage:last-child .ic svg{stroke:var(--ap-ok)}
   .ap-stage .n{display:block; font-size:22px; font-weight:var(--w-semi); line-height:1.1} .ap-stage .l{display:block; font-size:12px; color:var(--ap-ink); margin-top:3px} .ap-stage .sl{display:block; font-size:11px; color:var(--ap-mute); margin-top:1px}
+  .ap-lead{display:grid; grid-template-columns:64px repeat(5,1fr); align-items:center; font-size:11px; color:var(--ap-mute); margin:6px 0 0; padding:0 6px}
+  .ap-lead em{font-style:normal; text-align:center; color:var(--ap-ink); font-weight:var(--w-med); position:relative} .ap-lead em::before{content:"→"; color:var(--ap-mute); margin-right:6px; font-weight:var(--w-reg)}
   .ap-pipe-foot{display:flex; gap:18px; align-items:center; font-size:11px; color:var(--ap-mute); border-top:1px solid var(--ap-line); margin-top:8px; padding-top:8px; flex-wrap:wrap}
   .ap-pipe-foot b{color:var(--ap-ink); font-weight:var(--w-med)} .ap-pipe-foot .sp{flex:1} .ap-pipe-foot .note{opacity:.7}
   .ap-flow{flex:1 1 auto; height:2px; background:var(--ap-line); position:relative; overflow:hidden; border-radius:2px; min-width:24px}

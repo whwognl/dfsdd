@@ -4416,6 +4416,7 @@
    * 초기화 / 이벤트 연결
    * ===================================================================== */
   function performReset(hard) {
+    if (demoOn()) return;   // 데모 중 실제 저장소 삭제 금지
     state.orders = []; state.sourcingMap = {}; state.deleted = [];
     if (hard) state.ops = defaultOps();
     state.ui.sourcingOpen = {}; state.ui.colOrder = defaultSheetColOrder(); state.ui.colWidths = {}; state.ui.rowHeights = {}; state.ui.layoutVersion = SHEET_LAYOUT_VERSION;
@@ -4429,6 +4430,7 @@
     show("upload");
   }
   function reset(hard, onDone) {
+    if (demoOn()) { toast("데모 중에는 삭제할 수 없어요 — 먼저 [데모 종료]를 눌러 주세요"); return; }
     // 데이터가 지워지므로 반드시 확인 — 직접 추가한 행은 복구 불가
     if (!hard && !state.orders.length) { performReset(false); if (onDone) onDone(); return; }
     var opts = hard
@@ -4671,7 +4673,8 @@
     render: render, renderTabs: renderTabs, renderSheet: renderSheet, setTab: setTab, show: show, showDashboard: showDashboard,
     blankOrder: blankOrder, computeMargin: computeMargin, normalizeOrder: normalizeOrder, defaultOps: defaultOps, newId: newId,
     csOpen: csOpen, csSync: csSync, csAutoMemo: csAutoMemo, csStepsFor: csStepsFor, CS_STEPS: CS_STEPS, CS_LEDGER_KINDS: CS_LEDGER_KINDS,
-    toast: toast, won: won, comma: comma, esc: esc, fmtPct: fmtPct, todayKey: todayKey, dateStampHuman: dateStampHuman, riskOrders: riskOrders
+    toast: toast, won: won, comma: comma, esc: esc, fmtPct: fmtPct, todayKey: todayKey, dateStampHuman: dateStampHuman, riskOrders: riskOrders,
+    persist: function () { persist(); }
   };
   document.addEventListener("DOMContentLoaded", init);
 })();

@@ -59,6 +59,7 @@ const MIME = { ".html":"text/html; charset=utf-8", ".js":"text/javascript; chars
   console.log("피드 최신:", feedTop.replace(/\s+/g, " ").slice(0, 100));
   const csCards = await page.locator("#pane-autopilot .ap-csi").count();
   console.log("CS 카드:", csCards, "| KPI:", (await page.locator("#pane-autopilot .ap-kpis").innerText()).replace(/\s+/g, " ").slice(0, 160));
+  if (!csCards && SECS >= 20 && SPEED >= 60) errors.push("CS 자동화 보드가 비어 있음(새 CS 유입 없음)");
   if (process.env.SHOTS) await page.screenshot({ path: "/tmp/shots/demo-autopilot-1.png", fullPage: false });
   if (process.env.SHOTS) await page.screenshot({ path: "/tmp/shots/demo-autopilot-full.png", fullPage: true });
   // 종료 → 실제 데이터 복원(빈 상태 → 업로드 화면)
