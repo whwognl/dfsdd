@@ -161,6 +161,7 @@ aside{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 .ch h3 .lg{margin-left:auto;font-weight:var(--w-reg);color:var(--muted-2);font-size:10px}
 .ch svg{width:100%;height:118px;display:block;overflow:visible}
 .ch .ax{font-size:9px;fill:var(--muted-2)}
+.ch .lbl{font-size:10px;fill:var(--brand);font-weight:var(--w-semi)}
 .ch .grid{stroke:var(--line-soft);stroke-width:1}
 .bar{fill:#c7dcf5;transition:height .5s ease,y .5s ease}
 .bar.hi{fill:var(--brand)}
@@ -190,7 +191,7 @@ aside{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 .cs .h .typ.ok{color:var(--ok);background:var(--ok-bg);border-color:var(--ok-line)}
 .cs .h .who{color:var(--ink);font-weight:var(--w-med)}
 .cs .h .age{margin-left:auto;color:var(--muted-2)}
-.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:5px}
+.steps{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;margin-top:5px}
 .st{font-size:10px;color:var(--muted-2);display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden}
 .st i{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--line);flex:0 0 11px;display:grid;place-items:center;transition:all .3s}
 .st.on{color:var(--ink)}
@@ -411,7 +412,7 @@ const AV={order:"주",collect:"주",check:"보",invoice:"송",ship:"송",deliver
 const WHO={order:"주문봇",collect:"주문봇",check:"보안봇",invoice:"송장봇",ship:"송장봇",deliver:"송장봇",cs:"CS봇",db:"DB봇",hold:"보안봇",batch:"자동 묶음",manual:"담당자"};
 const CHIP={order:["발주","c-order"],collect:["수집","c-collect"],check:["검수","c-check"],invoice:["송장","c-ok"],ship:["발송","c-ok"],deliver:["배송완료","c-ok"],cs:["CS","c-cs"],db:["DB","c-db"],hold:["자동 보류","c-hold"],batch:["묶음","c-batch"],manual:["확인 완료","c-db"]};
 const pending=[]; let feedCount=0;
-function push(ev){ev.t=ev.t||simNow; pending.push(ev);}
+function push(ev){ev.t=ev.t||simNow; let i=pending.length; while(i>0&&pending[i-1].t>ev.t)i--; pending.splice(i,0,ev);}
 const lastShown={};
 function render(ev){
   const li=document.createElement("li"); li.className="ev k-"+ev.k;
@@ -425,25 +426,26 @@ function render(ev){
 let lastRender=0;
 function feedLoop(now){
   if(paused) return;
-  if(now-lastRender<380) return;
+  if(now-lastRender<330) return;
   if(!pending.length) return;
   lastRender=now;
-  // 우선순위: 보류·CS·DB·담당자 → 개별 표시. 단계 이벤트가 밀리면 묶음으로.
-  const stageKinds=new Set(["collect","check","order","invoice","ship","deliver"]);
-  let idx=pending.findIndex(e=>!stageKinds.has(e.k));
-  if(idx>=0){ render(pending.splice(idx,1)[0]); return; }
-  pending.sort((a,b)=>a.t-b.t);
-  // 가장 오래 안 보인 종류를 개별로 보여줌
-  let best=0,bestT=Infinity; pending.forEach((e,i)=>{const lt=lastShown[e.k]||0; if(lt<bestT){bestT=lt;best=i;}});
-  const one=pending.splice(best,1)[0]; lastShown[one.k]=now; render(one);
-  if(pending.length<=5) return;
-  // 남은 단계 이벤트는 묶음으로 요약
-  const keep=pending.slice(0,3), rest=pending.slice(3); pending.length=0; keep.forEach(e=>pending.push(e));
-  if(!rest.length) return;
-  const agg={}; rest.forEach(e=>{agg[e.k]=(agg[e.k]||0)+1;});
-  const parts=Object.keys(agg).map(k=>`${CHIP[k][0]} ${agg[k]}`).join(" · ");
-  const t0=fmtT(rest[0].t).slice(0,5), t1=fmtT(rest[rest.length-1].t).slice(0,5);
-  pending.push({k:"batch",t:rest[rest.length-1].t,txt:`${t0}~${t1} 자동 처리 ${rest.length}건 · ${parts}`});
+  render(pending.shift());
+}
+const STAGE_ORDER=["collect","check","order","invoice","ship","deliver"];
+// 이번 틱의 단계 이벤트를 '개별 k건 + 묶음 1건'으로 압축 (시간순 유지)
+function compact(tickEvents){
+  if(!tickEvents.length) return;
+  tickEvents.sort((a,b)=>a.t-b.t);
+  const k=pending.length>6?1:2;
+  if(tickEvents.length<=k+1){ tickEvents.forEach(e=>push(e)); return; }
+  // 가장 오래 안 보인 종류부터 개별로
+  const chosen=[]; const pool=tickEvents.slice();
+  for(let n=0;n<k;n++){ let best=0,bestT=Infinity; pool.forEach((e,i)=>{const lt=lastShown[e.k]||0; if(lt<bestT){bestT=lt;best=i;}}); const e=pool.splice(best,1)[0]; lastShown[e.k]=performance.now()+n; chosen.push(e); }
+  const agg={}; pool.forEach(e=>{agg[e.k]=(agg[e.k]||0)+1;});
+  const parts=STAGE_ORDER.filter(x=>agg[x]).map(x=>`${CHIP[x][0]} ${agg[x]}`).join(" · ");
+  const t0=fmtT(pool[0].t).slice(0,5), t1=fmtT(pool[pool.length-1].t).slice(0,5);
+  chosen.push({k:"batch",t:pool[0].t,txt:`${t0===t1?t0:t0+"~"+t1} 자동 처리 ${pool.length}건 · ${parts}`});
+  chosen.sort((a,b)=>a.t-b.t).forEach(e=>push(e));
 }
 
 /* ---------- 이벤트 텍스트 ---------- */
@@ -561,8 +563,8 @@ const c30=$("ch30"); const W30=300,H30=118,PB=14,PT=10; const bars30=[]; let lbl
   const d0=new Date(SIM0); d0.setDate(d0.getDate()-29);
   for(let i=0;i<30;i++){ const v=i===TODAY?0:SALES[i]; const h=(H30-PB-PT)*v/max; const b=el("rect",{x:i*bw+1.5,width:bw-3,y:H30-PB-h,height:h,rx:1.5,class:"bar"+(i===TODAY?" today":(v>SALES[TODAY]*0.5?" hi":""))},c30); bars30.push(b);
     const d=new Date(d0); d.setDate(d0.getDate()+i); if(i%7===1||i===TODAY) el("text",{x:i*bw+bw/2,y:H30-3,"text-anchor":"middle",class:"ax"},c30).textContent=(d.getMonth()+1)+"/"+d.getDate(); }
-  el("text",{x:W30-2,y:PT+3,"text-anchor":"end",class:"ax"},c30).textContent=fmtN(max/1e4)+"만";
-  lbl30=el("text",{x:29*bw+bw/2,y:H30-PB-4,"text-anchor":"end",class:"ax num",fill:"#0071e3","font-weight":"600"},c30);
+  el("text",{x:2,y:PT-2,class:"ax"},c30).textContent="최대 "+fmtN(max/1e4)+"만 (9/23 예상)";
+  lbl30=el("text",{x:29*bw+bw/2+2,y:H30-PB-4,"text-anchor":"end",class:"lbl num"},c30);
 })();
 function chart30(){ const s=secOfDay(simNow); const v=SALES[TODAY]*cum(s); const max=SALES[TODAY]*1.02; const h=(H30-PB-PT)*v/max; bars30[TODAY].setAttribute("y",(H30-PB-h).toFixed(1)); bars30[TODAY].setAttribute("height",h.toFixed(1)); lbl30.textContent=fmtN(v/1e4)+"만 ↑"; lbl30.setAttribute("y",Math.max(PT+8,H30-PB-h-4).toFixed(1)); }
 // 시간대별
@@ -588,9 +590,9 @@ const c12=$("ch12"); const W12=170,H12=118; let bar12,proj12,lbl12;
   bar12=el("rect",{x:11*bw+2,width:bw-4,y:yv(0),height:0,rx:1.5,class:"bar today"},c12);
   MLAB.forEach((m,i)=>{ if(i%2===1||i===11) el("text",{x:i*bw+bw/2,y:H12-3,"text-anchor":"middle",class:"ax"},c12).textContent=m+"월"; });
   el("text",{x:2,y:yv(8)-2,class:"ax"},c12).textContent="8억";
-  lbl12=el("text",{x:11*bw+bw/2,y:0,"text-anchor":"middle",class:"ax",fill:"#0071e3","font-weight":"600"},c12);
+  lbl12=el("text",{x:11*bw+bw/2,y:0,"text-anchor":"end",class:"lbl num"},c12);
 })();
-function chart12(){ const s=secOfDay(simNow); const v=(MONTH_BASE+SALES[TODAY]*cum(s))/1e8; const max=8.4; const yv=x=>H12-PB-(H12-PB-PT)*x/max; bar12.setAttribute("y",yv(v).toFixed(1)); bar12.setAttribute("height",(H12-PB-yv(v)).toFixed(1)); lbl12.textContent=v.toFixed(2); lbl12.setAttribute("y",(yv(7.8)-3).toFixed(1)); }
+function chart12(){ const s=secOfDay(simNow); const v=(MONTH_BASE+SALES[TODAY]*cum(s))/1e8; const max=8.4; const yv=x=>H12-PB-(H12-PB-PT)*x/max; bar12.setAttribute("y",yv(v).toFixed(1)); bar12.setAttribute("height",(H12-PB-yv(v)).toFixed(1)); lbl12.textContent=v.toFixed(2)+"억"; lbl12.setAttribute("x",(11*(W12/12)+W12/12-1).toFixed(1)); lbl12.setAttribute("y",(yv(7.8)-3).toFixed(1)); }
 
 /* ---------- 이벤트 생성 (1초마다, 시뮬레이션 시간 기준) ---------- */
 let lastGen=simNow, nextHoldReal=performance.now()+5200, nextCSReal=performance.now()+1400, nextManualReal=performance.now()+30000;
@@ -598,19 +600,19 @@ function generate(){
   const s=secOfDay(simNow);
   const newCnt=STG.map((_,i)=>stageCount(i,s));
   const d=newCnt.map((v,i)=>Math.max(0,v-cnt[i]));
-  const kinds=["collect","check","order","invoice","ship","deliver"];
-  // 각 단계 이벤트를 만들되, 화면에 실제로 그려질 수 있는 만큼만(나머지는 묶음)
+  const kinds=STAGE_ORDER; const tickEvents=[];
   kinds.forEach((k,i)=>{
     for(let j=0;j<d[i];j++){
       let o; if(k==="collect"){o=mkOrder();recent.unshift(o);if(recent.length>80)recent.pop();} else if(k==="deliver"){o=mkOrder();} else {o=recent[ri(0,Math.min(recent.length-1,30))]||mkOrder();}
       const txt={collect:evCollect,check:evCheck,order:evOrder,invoice:evInvoice,ship:evShip,deliver:evDeliver}[k](o);
-      if(pending.length<40) push({k,txt,t:lastGen+Math.random()*(simNow-lastGen)});
+      if(tickEvents.length<160) tickEvents.push({k,txt,t:lastGen+Math.random()*(simNow-lastGen)});
       if(k==="order") botTask("order",`${o.sup} 발주서 작성: ${o.p} ${o.opt} ×${o.q} · ${o.name}`);
       if(k==="invoice") botTask("invoice",`${o.cour} 송장 등록: ${o.trk} · ${o.name}`);
       if(k==="check") botTask("sec",`마스킹 · 블랙리스트 대조: ${o.name} · ${o.reg}`);
     }
     if(d[i]>0){ cnt[i]=newCnt[i]; $("stc-"+k).textContent=fmtN(cnt[i]); flash(k); }
   });
+  compact(tickEvents);
   // 블랙리스트 보류 (가끔)
   const nowR=performance.now();
   if(nowR>=nextHoldReal){ nextHoldReal=nowR+rnd(28000,60000); const o=mkOrder(); holdWait++; holdToday++; manualToday++; DBI[2].cnt++; DBI[2].last=simNow; $("dbc-2").textContent=DBI[2].cnt;

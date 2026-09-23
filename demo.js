@@ -447,7 +447,8 @@
     var expDay = Math.round(ORDERS_PER_DAY * WDAY_W[wdayIdx(t)] * (D.todayNoise || 1) * AOV);
     var frac = (t.getTime() - d0.getTime()) / DAY, h = t.getHours(), hf = (t.getTime() - d0.getTime() - h * HOUR) / HOUR;
     var ySame = 0; for (var i = 0; i < h; i++) ySame += D.yHourly[i] || 0; ySame += (D.yHourly[h] || 0) * hf;
-    var vsY = ySame ? (D.today.rev - ySame) / ySame * 100 : 0;
+    var yTot = (D.days[dayKeyOf(new Date(t.getTime() - DAY))] || {}).rev || DAY_TARGET;
+    var vsY = (D.today.rev - ySame) / Math.max(ySame, yTot * 0.06) * 100;
     var autoRate = D.stages.collected ? Math.max(90, 100 - (D.stages.held + D.cs.human) / Math.max(1, D.stages.collected) * 100) : 99.2;
     return {
       today:D.today, yesterday:D.days[yk] || freshDay(), month:month, lastMonth:lastMonth, ytd:ytd, pace:pace, paceRatio:pace / YEAR_TARGET,
@@ -562,8 +563,21 @@
   function runDeferred(tms) {
     if (!D.deferred.length) return;
     var keep = [];
-    for (var i = 0; i < D.deferred.length; i++) { var ev = D.deferred[i]; if (ev.at <= tms) { D.stages[ev.kind]++; if (ev.kind === "delivered" && rnd() < CS_RATE * 0.5) D.today.cs++; } else keep.push(ev); }
+    for (var i = 0; i < D.deferred.length; i++) {
+      var ev = D.deferred[i];
+      if (ev.at > tms) { keep.push(ev); continue; }
+      D.stages[ev.kind]++;
+      if (ev.kind === "delivered" && rnd() < CS_RATE) {
+        var host = pickLiveOrderForCs();
+        if (host) openCs(host, tms); else D.today.cs++;
+      }
+    }
     D.deferred = keep;
+  }
+  function pickLiveOrderForCs() {
+    var os = OH.state.orders, cands = [];
+    for (var i = 0; i < os.length && cands.length < 40; i++) { var o = os[i]; if (o._d && !o._d.cs && o._d.stage !== "held" && o._d.stage !== "collected" && o._d.stage !== "checked") cands.push(o); }
+    return cands.length ? pick(cands) : null;
   }
   function renderTabsOnly() { if (OH && OH.renderTabs) OH.renderTabs(); }
 
