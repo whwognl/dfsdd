@@ -173,7 +173,7 @@
     st.orders.unshift(o);
     var td = D.today; td.cnt++; td.rev += o.paymentAmount; td.margin += (o.margin || 0); td.cost += o.purchaseAmount;
     D.hourly[t.getHours()] += o.paymentAmount;
-    D.stages.collected++;
+    D.stages.collected++; bump("collected");
     if (o.risk && o.risk.level) {
       o._d.stage = "held"; o._d.next = t.getTime() + ri(6, 25) * MIN; D.stages.held++; D.human++; td.held++;
       bot("security", "블랙리스트 일치 → 자동 보류: " + o.recipient);
@@ -199,26 +199,26 @@
     if (m.cs) { advanceCs(o, tms); }
     if (!m.next || tms < m.next) return;
     if (m.stage === "collected") {
-      m.stage = "checked"; D.stages.checked++; m.next = tms + ri(2, 9) * MIN;
+      m.stage = "checked"; D.stages.checked++; bump("checked"); m.next = tms + ri(2, 9) * MIN;
       bot("security", "검수 통과: " + o.recipient + " · 개인정보 마스킹 완료");
     } else if (m.stage === "checked") {
       m.stage = "ordered"; o.status = "purchased"; o.orderedYn = "O"; o.paidAt = fmtDT(t);
-      OH.computeMargin(o); D.stages.ordered++; D.bots.order.count++;
+      OH.computeMargin(o); D.stages.ordered++; bump("ordered"); D.bots.order.count++;
       bot("order", o._d.p.vendor + " 발주: " + o.productName + " " + o.option + " ×" + o.quantity);
       if (sample(0.55)) feed(t, "발주", "ok", o.productName + " " + o.option + " ×" + o.quantity + " · " + o.recipient + " · " + o._d.p.vendor + " 발주 완료 · 마진 " + signed(o.margin));
       m.next = shipTime(tms);
     } else if (m.stage === "ordered") {
       m.stage = "invoiced"; o.status = "invoiced"; o.courier = o._d.p.courier; o.invoiceNumber = invoiceNo(o.courier);
-      OH.computeMargin(o); D.stages.invoiced++; D.bots.invoice.count++;
+      OH.computeMargin(o); D.stages.invoiced++; bump("invoiced"); D.bots.invoice.count++;
       bot("invoice", o.courier + " 송장 등록: " + o.invoiceNumber);
       if (sample(0.35)) feed(t, "송장", "ok", o.courier + " " + o.invoiceNumber + " · " + o.productName + " " + o.option + " · " + o.recipient);
       m.next = tms + ri(30, 90) * MIN;
     } else if (m.stage === "invoiced") {
-      m.stage = "shipped"; D.stages.shipped++;
+      m.stage = "shipped"; D.stages.shipped++; bump("shipped");
       if (sample(0.2)) feed(t, "발송", "info", o.productName + " " + o.option + " · " + o.recipient + " · " + o.courier + " 집하 완료");
       m.next = tms + ri(18, 30) * HOUR;
     } else if (m.stage === "shipped") {
-      m.stage = "delivered"; D.stages.delivered++; m.next = 0;
+      m.stage = "delivered"; D.stages.delivered++; bump("delivered"); m.next = 0;
       if (sample(0.12)) feed(t, "배송완료", "info", o.productName + " " + o.option + " · " + o.recipient + " · " + regionOf(o));
       if (!m.cs && rnd() < CS_RATE) openCs(o, tms);
     } else if (m.stage === "held") {
@@ -249,7 +249,7 @@
     var t = new Date(tms);
     OH.csOpen(o, type, { stay:true });
     o.cs.reason = pick(CS_REASON[type] || ["기타"]); o.cs.channel = rnd() < 0.7 ? "판매자센터" : "문자";
-    o._d.cs = { idx:0, next:tms + ri(1, 6) * MIN, human:rnd() < 0.06, humanAt:-1, done:false };
+    o._d.cs = { idx:0, next:tms + ri(1, 6) * MIN, human:rnd() < 0.06, humanAt:-1, done:false, openedAt:tms };
     D.cs.opened++; D.cs.open++; D.today.cs++; D.bots.cs.count++;
     var line = (CS_LINES[type] || CS_LINES._default)[0];
     OH.csAutoMemo(o, "AI 응대 발송: " + line, "note");
@@ -283,7 +283,8 @@
       c.done = true; D.cs.closed++; D.cs.open = Math.max(0, D.cs.open - 1); if (!c.human) D.cs.auto++;
       D.today.csCost += Math.abs(o.csCost || 0);
       bot("cs", o.csType + " 종결 (" + o.recipient + ")");
-      feed(t, "CS 종결", "ok", o.csType + " · " + o.productName + " · " + o.recipient + (o.csCost ? " · 차감 " + OH.won(-Math.abs(o.csCost)) : "") + (c.human ? " · 담당자 개입" : " · 전자동"));
+      var took = c.openedAt ? Math.round((tms - c.openedAt) / MIN) : 0, tookTxt = took >= 60 ? Math.floor(took / 60) + "시간 " + (took % 60) + "분" : took + "분";
+      feed(t, "CS 종결", "ok", o.csType + " · " + o.productName + " · " + o.recipient + (o.csCost ? " · 차감 " + OH.won(-Math.abs(o.csCost)) : "") + " · " + tookTxt + " 만에 " + (c.human ? "종결(담당자 1회 개입)" : "자동 종결"));
       return;
     }
     var who = st[2] || "me";
@@ -293,6 +294,16 @@
 
   /* ---------- DB · 봇 · 피드 ---------- */
   function bot(key, task) { var b = D.bots[key]; if (!b) return; b.task = task; b.at = D.now; b.pulse = D.tick; }
+  function bump(kind) { D.batch[kind] = (D.batch[kind] || 0) + 1; D.batchN++; }
+  // 피드에 안 실린 처리까지 묶어서 한 줄로 — "자동 처리 14건 · 수집 3 · 발주 2 …"
+  function flushBatch(t) {
+    if (!D.batchN) return;
+    var order = [["collected", "수집"], ["checked", "검수"], ["ordered", "발주"], ["invoiced", "송장"], ["shipped", "발송"], ["delivered", "배송완료"]];
+    var parts = order.filter(function (x) { return D.batch[x[0]]; }).map(function (x) { return x[1] + " " + D.batch[x[0]]; });
+    var from = D.batchFrom ? fmtT(new Date(D.batchFrom)).slice(0, 5) : "", to = fmtT(t).slice(0, 5);
+    feed(t, "묶음", "info", (from && from !== to ? from + "~" + to + " " : "") + "사람 손 없이 자동 처리 " + D.batchN + "건 · " + parts.join(" · "));
+    D.batch = {}; D.batchN = 0; D.batchFrom = D.now;
+  }
   function feed(t, kind, tone, text) {
     D.feed.unshift({ id:++D.feedSeq, t:fmtT(t), kind:kind, tone:tone, text:text });
     if (D.feed.length > 160) D.feed.length = 160;
@@ -410,6 +421,7 @@
     D.cs.opened = D.today.cs; D.cs.open = seeded; D.cs.closed = Math.max(0, Math.round((D.today.cs - seeded) * 0.9));
     D.cs.human = Math.round(D.cs.closed * 0.06); D.cs.auto = D.cs.closed - D.cs.human; D.human = Math.max(0, D.human);
     D.feed.length = 0;
+    D.batch = {}; D.batchN = 0; D.batchFrom = tms;
     feed(t, "시작", "ok", "자동화 관제 시작 — 오늘 " + OH.comma(D.today.cnt) + "건 · " + OH.won(D.today.rev) + " 처리 중 · 연매출 80억 페이스");
   }
 
@@ -487,7 +499,7 @@
     D.speed = opts.speed || D.speed || 60; D.paused = false; D.tick = 0; D.feed = []; D.feedSeq = 0; D.human = 0; D.seq = 0; D.tween = {};
     D.bots = { order:{ name:"주문봇", role:"수집·검수·발주", task:"대기", count:0 }, invoice:{ name:"송장봇", role:"송장 등록·발송", task:"대기", count:0 }, cs:{ name:"CS봇", role:"응대·접수·회수", task:"대기", count:0 }, db:{ name:"DB봇", role:"가격·라인업·마감·백업", task:"대기", count:0 }, security:{ name:"보안봇", role:"블랙리스트·마스킹", task:"대기", count:0 } };
     D.db = { sourcing:{ label:"매입처DB", rows:PRODUCTS.length, changes:0, at:0 }, lineup:{ label:"라인업", rows:PRODUCTS.length, changes:0, at:0 }, blacklist:{ label:"블랙리스트", rows:DEMO_BLACKLIST.length + 116, changes:0, at:0 }, fees:{ label:"수수료표", rows:13, changes:0, at:0 }, daily:{ label:"일별매출", rows:0, changes:0, at:0 }, backup:{ label:"로컬 백업", rows:0, changes:0, at:0 } };
-    D.cs = { opened:0, closed:0, auto:0, human:0, open:0 }; D.deferred = [];
+    D.cs = { opened:0, closed:0, auto:0, human:0, open:0 }; D.deferred = []; D.batch = {}; D.batchN = 0; D.batchFrom = 0;
     D.now = Date.now(); D.dayKey = ""; D.today = null;
     var todayD = new Date(D.now); var day0 = new Date(todayD.getFullYear(), todayD.getMonth(), todayD.getDate());
     buildHistory(day0);
@@ -529,6 +541,7 @@
       var step = D.speed * 1000, sub = Math.max(1, Math.ceil(step / (10 * MIN)));   // 10분 단위로 쪼개 순서 보존
       for (var i = 0; i < sub; i++) simulate(step / sub);
     }
+    if (D.tick % 6 === 0 && !D.paused) flushBatch(new Date(D.now));
     if (D.tick % 9 === 0) { var il = pick(IDLE_LINES); bot(il[0], il[1]); }
     var tab = OH.state.ui.tab;
     if (tab === "autopilot") renderPane();
@@ -566,7 +579,7 @@
     for (var i = 0; i < D.deferred.length; i++) {
       var ev = D.deferred[i];
       if (ev.at > tms) { keep.push(ev); continue; }
-      D.stages[ev.kind]++;
+      D.stages[ev.kind]++; bump(ev.kind);
       if (ev.kind === "delivered" && rnd() < CS_RATE) {
         var host = pickLiveOrderForCs();
         if (host) openCs(host, tms); else D.today.cs++;

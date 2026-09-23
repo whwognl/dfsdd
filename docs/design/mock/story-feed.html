@@ -186,7 +186,9 @@ aside{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 .cslist{flex:1;min-height:0;overflow:hidden;padding:0 10px 8px;display:flex;flex-direction:column;gap:6px}
 .cs{border:1px solid var(--line-soft);border-radius:10px;padding:7px 9px 6px;background:var(--bg-elev);transition:opacity .5s,transform .5s;animation:grow .4s both}
 .cs.done{opacity:.45;transform:scale(.985)}
-.cs .h{display:flex;align-items:center;gap:6px;font-size:var(--fs-caption);color:var(--muted)}
+.cs .h{display:flex;align-items:center;gap:6px;font-size:var(--fs-caption);color:var(--muted);white-space:nowrap;min-width:0}
+.cs .h .prod{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
+.cs .h .typ,.cs .h .who,.cs .h .age{flex:0 0 auto}
 .cs .h .typ{font-weight:var(--w-semi);color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn-line);padding:0 6px;border-radius:var(--r-pill);font-size:10px}
 .cs .h .typ.ok{color:var(--ok);background:var(--ok-bg);border-color:var(--ok-line)}
 .cs .h .who{color:var(--ink);font-weight:var(--w-med)}
@@ -221,6 +223,7 @@ aside{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 }
 @media (max-height:820px){
   .ch svg{height:96px}.kpi{padding:8px 12px 7px}.mini{padding:6px 10px 5px}
+  .panel .hd{padding:7px 12px 4px}.dblist{gap:1px}.db{padding:3px 6px}.cslist{gap:4px}.cs{padding:6px 8px 5px}
   .pipe{padding:8px 16px 6px}.bots{padding-bottom:8px}
   .steps{margin-top:3px}
 }
@@ -253,13 +256,13 @@ aside{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
       <div class="card kpi"><div class="l">이번 달 매출 · 9월</div><div class="v mid num" id="k-month">₩0</div><div class="d">일평균 <span class="num" id="k-month-avg">₩0</span> · 23일차</div></div>
       <div class="card kpi"><div class="l">올해 누적</div><div class="v mid num" id="k-year">₩0</div><div class="d">목표 80억 대비 <span class="num" id="k-year-p">0%</span></div></div>
       <div class="card kpi pace">
-        <div><div class="l">연매출 페이스</div><div class="v mid num" id="k-pace">₩0</div><div class="d">목표 ₩80.0억 · 266일 기준 환산</div></div>
+        <div><div class="l">연매출 페이스</div><div class="v mid num" id="k-pace">₩0</div><div class="d">목표 ₩80억 · 266일 환산</div></div>
         <svg class="ring" viewBox="0 0 62 62"><circle class="bg" cx="31" cy="31" r="26"/><circle class="fg" id="ring" cx="31" cy="31" r="26" stroke-dasharray="163.4" stroke-dashoffset="163.4"/><text x="31" y="35" text-anchor="middle" class="num" id="ring-t">0%</text></svg>
       </div>
     </div>
     <div class="minis">
       <div class="card mini"><div class="l">순마진 · 마진율</div><div class="v num" id="k-margin">₩0</div><div class="d">마진율 11.3%</div></div>
-      <div class="card mini"><div class="l">오늘 처리 건수</div><div class="v num" id="k-proc">0</div><div class="d">봇 5개 · 주문 <span class="num" id="k-proc-o">0</span>건</div></div>
+      <div class="card mini"><div class="l">오늘 처리 건수</div><div class="v num" id="k-proc">0</div><div class="d">주문 <span class="num" id="k-proc-o">0</span>건 · 봇 5개</div></div>
       <div class="card mini auto"><div class="l">자동 처리율</div><div class="v num" id="k-auto">0%</div><div class="d">사람 개입 <span class="num" id="k-manual-t">0</span>건 / 오늘</div></div>
       <div class="card mini wait"><div class="l">사람 개입 대기</div><div class="v num" id="k-wait">0</div><div class="d">블랙리스트 · 강성 CS</div></div>
     </div>
@@ -478,7 +481,7 @@ function newCS(seed){
   csActive.push(c); csTotal++;
   // 보드 카드
   const card=document.createElement("div");card.className="cs";card.id="cs-"+id;
-  card.innerHTML=`<div class="h"><span class="typ">${T.t}</span><span class="who">${o.name}</span><span>${o.p} ${o.opt}</span><span class="age num" id="csage-${id}">0초</span></div><div class="steps">${T.steps.map((s,i)=>`<div class="st" id="cs-${id}-s${i}"><i></i>${s}</div>`).join("")}</div>`;
+  card.innerHTML=`<div class="h"><span class="typ">${T.t}</span><span class="who">${o.name}</span><span class="prod">${o.p} ${o.opt}</span><span class="age num" id="csage-${id}">0초</span></div><div class="steps">${T.steps.map((s,i)=>`<div class="st" id="cs-${id}-s${i}"><i></i>${s}</div>`).join("")}</div>`;
   cslist.insertBefore(card,cslist.firstChild); c.el=card;
   while(cslist.children.length>4){const last=cslist.lastChild; if(last.classList.contains("done")||cslist.children.length>5) cslist.removeChild(last); else break;}
   if(seed){ for(let i=0;i<seed.step;i++) setStep(c,i,"on"); c.step=seed.step; setStep(c,seed.step,"run"); setTimeout(()=>advance(c),rnd(2500,5000)); return c; }
@@ -563,10 +566,10 @@ const c30=$("ch30"); const W30=300,H30=118,PB=14,PT=10; const bars30=[]; let lbl
   const d0=new Date(SIM0); d0.setDate(d0.getDate()-29);
   for(let i=0;i<30;i++){ const v=i===TODAY?0:SALES[i]; const h=(H30-PB-PT)*v/max; const b=el("rect",{x:i*bw+1.5,width:bw-3,y:H30-PB-h,height:h,rx:1.5,class:"bar"+(i===TODAY?" today":(v>SALES[TODAY]*0.5?" hi":""))},c30); bars30.push(b);
     const d=new Date(d0); d.setDate(d0.getDate()+i); if(i%7===1||i===TODAY) el("text",{x:i*bw+bw/2,y:H30-3,"text-anchor":"middle",class:"ax"},c30).textContent=(d.getMonth()+1)+"/"+d.getDate(); }
-  el("text",{x:2,y:PT-2,class:"ax"},c30).textContent="최대 "+fmtN(max/1e4)+"만 (9/23 예상)";
-  lbl30=el("text",{x:29*bw+bw/2+2,y:H30-PB-4,"text-anchor":"end",class:"lbl num"},c30);
+  el("text",{x:2,y:PT-2,class:"ax"},c30).textContent="오늘 예상 "+fmtN(max/1e4)+"만";
+  lbl30=el("text",{x:W30-2,y:PT-2,"text-anchor":"end",class:"lbl num"},c30);
 })();
-function chart30(){ const s=secOfDay(simNow); const v=SALES[TODAY]*cum(s); const max=SALES[TODAY]*1.02; const h=(H30-PB-PT)*v/max; bars30[TODAY].setAttribute("y",(H30-PB-h).toFixed(1)); bars30[TODAY].setAttribute("height",h.toFixed(1)); lbl30.textContent=fmtN(v/1e4)+"만 ↑"; lbl30.setAttribute("y",Math.max(PT+8,H30-PB-h-4).toFixed(1)); }
+function chart30(){ const s=secOfDay(simNow); const v=SALES[TODAY]*cum(s); const max=SALES[TODAY]*1.02; const h=(H30-PB-PT)*v/max; bars30[TODAY].setAttribute("y",(H30-PB-h).toFixed(1)); bars30[TODAY].setAttribute("height",h.toFixed(1)); lbl30.textContent="오늘 "+fmtN(v/1e4)+"만 ↑"; }
 // 시간대별
 const cH=$("chH"); const WH=220,HH=118; let pToday,pYday,aToday,dotNow,dotP;
 (function(){ [0.5,1].forEach(f=>el("line",{x1:0,x2:WH,y1:PT+(HH-PB-PT)*(1-f),y2:PT+(HH-PB-PT)*(1-f),class:"grid"},cH));
@@ -595,7 +598,7 @@ const c12=$("ch12"); const W12=170,H12=118; let bar12,proj12,lbl12;
 function chart12(){ const s=secOfDay(simNow); const v=(MONTH_BASE+SALES[TODAY]*cum(s))/1e8; const max=8.4; const yv=x=>H12-PB-(H12-PB-PT)*x/max; bar12.setAttribute("y",yv(v).toFixed(1)); bar12.setAttribute("height",(H12-PB-yv(v)).toFixed(1)); lbl12.textContent=v.toFixed(2)+"억"; lbl12.setAttribute("x",(11*(W12/12)+W12/12-1).toFixed(1)); lbl12.setAttribute("y",(yv(7.8)-3).toFixed(1)); }
 
 /* ---------- 이벤트 생성 (1초마다, 시뮬레이션 시간 기준) ---------- */
-let lastGen=simNow, nextHoldReal=performance.now()+5200, nextCSReal=performance.now()+1400, nextManualReal=performance.now()+30000;
+let lastGen=simNow, nextHoldReal=performance.now()+5200, nextCSReal=performance.now()+600, nextManualReal=performance.now()+30000;
 function generate(){
   const s=secOfDay(simNow);
   const newCnt=STG.map((_,i)=>stageCount(i,s));
