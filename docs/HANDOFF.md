@@ -1,129 +1,64 @@
-# 인수인계 — 우루루 통합 주문관리 v2
+# 인수인계 (HANDOFF) — order-helper
 
-작성: 2026-09-06 / 이전 버전(order-helper, v9 워크북 기준)을 **2026-09 최신 주문서 양식**으로 재설계한 결과물입니다.
+작성 기준: 2026-09-23. 사람이 아닌 다음 작업자(사람·AI 모두)가 그대로 이어갈 수 있게 씁니다.
 
----
+## 0. 한 줄 요약
 
-## 0. 왜 다시 만들었나
+구버전 앱(`app.js` 3,555줄 시절)의 구조를 유지한 채 ① 새 주문 수집 파일(36열 `.xls`) 입출력, ② 블랙리스트 자동 경고, ③ 한 줄 복사 툴바, ④ CS관리 확장, ⑤ 대시보드 개선, ⑥ **자동화 관제 데모(오토파일럿)** 를 얹었습니다. 저장소에 개인정보는 없습니다.
 
-이전 앱(`order-helper`)은 **v9 워크북**(대시보드/수수료표/분류규칙/쿠팡 발주서/소싱 라인업/매입처DB/수행일지/계정관리/카드관리)을 기준으로 만들어졌습니다.
-사용자가 실제로 쓰는 최신 워크북은 시트 구성과 주문서 열 이름·순서가 전부 바뀌었습니다.
+## 1. 사용자 요구의 역사 (중요)
 
-| | 이전(v9) | 지금(2026-09) |
+1. 처음엔 9월 워크북(53열)을 기준으로 앱을 새로 짰다가 **거부**됐습니다("구버전 앱 구조를 바꾸지 마라"). 그 산출물은 `archive/v2-rebuild/` 에만 남겨 두고 쓰지 않습니다.
+2. 확정된 방향: **구버전 앱이 기준**. 바뀐 것은 원본 소스(수집 파일) 양식뿐 → 36열 `.xls` 를 읽고, 송장 파일도 같은 36열로 내보낸다. 그 위에 작은 개선.
+3. 그 다음 요청: "내부가 실제로 동작할 필요는 없다. 모든 게 자동으로 돌아가는 모습으로 비주얼 쇼크를 달라. 연매출 80억 페이스." → `demo.js` 자동화 관제. 데이터는 사용자가 준 운영 워크북에서 **패턴만**(개인정보 제외) 추출.
+
+## 2. 파일 지도
+
+| 파일 | 내용 | 손댈 때 주의 |
 |---|---|---|
-| 시트 | 12개 (대시보드/프로세스/사용법/수수료표/분류규칙/쿠팡 발주서/주문관리/운송장업로드/일별매출/소싱 라인업/매입처DB/수행일지·계정·카드) | 10개 (설명 / 블랙리스트 / DAY / MON / 2.주문서 / 3.계정카드정보 / 수수료 / CS / 4.송장업로드리스트 / 사입) |
-| 주문 시트 | 쿠팡 발주서 열(노출상품ID·수취인이름 …) | **2.주문서 53열** (수집일·주문일·판매사이트 주문번호·판매사이트명 …), 헤더가 **3행** |
-| 마진 | 결제액 × (1−수수료율) − 매입원가 − CS차감 | **(판매가×(1−수수료율VAT) + 배송비순액 − 구매금액 − 에누리) ÷ 1.1** |
+| `index.html` | 화면·전체 CSS(디자인 토큰은 `:root`). 스크립트 순서: `xlsx-lite → biff → xlsx-compat → copy-helpers → blacklist → rules → app → demo-data → demo` | 캐시 무효화 `?v=39` 를 같이 올릴 것 |
+| `app.js` | 앱 본체(IIFE). 상태 `state`, localStorage 키 `oh_*_v1` | 렌더 함수는 pane 통째 innerHTML, 이벤트는 `init()` 에서 pane 단위 위임 1회 |
+| `xlsx-compat.js` | SheetJS 모양의 API(`XLSX.readAsync`, `utils.*`, `writeFile`). ZIP 이면 xlsx-lite, CFB(D0CF11E0)면 biff.js, 그 외 텍스트 CSV | `bookType:"xls"` 는 `BiffXls.buildBytes` |
+| `biff.js` | 의존성 0 의 `.xls`(BIFF8) 읽기/쓰기. 테스트 `tools/test-biff.js`(54항목, xlrd 대조) | 65,536행·256열 제한 |
+| `blacklist.js` | 이름(마스킹 와일드카드)·주소(숫자 토큰 정확일치)·전화(뒤 8자리) 판정 | 행정구역만 겹치는 건 일치 아님 |
+| `copy-helpers.js` | 주소 분리(도로명/지번/추정), 전화 형식(자릿수), 자동입력 페이로드 v2 | 전화는 항상 '내 번호' |
+| `demo.js` | 관제 데모 엔진+화면. `window.Demo` | 아래 4절 |
+| `demo-data.js` | `tools/make-demo-data.py` 산출. 상품·가격·구매처·택배사·지역·시간대·CS 비율 | 개인정보 넣지 말 것 |
+| `tools/` | `smoke.js`(Playwright 전체 흐름) · `demo-smoke.js` · `verify-export.js` · `test-biff.js` · `test-copy.js` | 모두 `node tools/<파일>` |
+| `docs/design/` | 01 구앱 지도 · 02 CS 사례 분석 · 03 소스 어댑터 스펙 · 04 원클릭 복사 스펙 · 05 BIFF 엔진 · `mock/` 관제 화면 목업(HTML) | 보고서에 개인정보 없음 |
 
-열 매핑만 손보는 것으로는 맞지 않아 **데이터 모델부터 다시 세웠습니다**.
-대신 이전 앱에서 검증된 것(시트형 UI, 열 이동/너비 조절, 블록 붙여넣기, 삭제 복구,
-formula injection 방어, 애플식 디자인 토큰, 로컬 전용 원칙)은 그대로 이어받았습니다.
+## 3. app.js 에서 이번에 추가·변경된 곳 (검색어)
 
-## 1. 구조
+- **36열 입력**: `FIELDS`(별칭 36개), `SOURCE_HEADERS`, `autoMap`(위치 감지 → 정확일치 → 부분일치+거부어), `buildOrders`, `keyOf`(주문고유번호 우선, 옛 조합키 폴백), `mergeOrders`/`finalizeOrders`(#opt-merge 체크 시 합치기).
+- **36열 출력**: `sourceRow`, `exportSource(type)`, `SOURCE_NUMERIC`(금액·수량은 숫자형), `courierToCode`, `invoiceExcluded`.
+- **마진식**: `computeMargin` — 워크북식 `(판매가+배송비)×(1−율×1.1) − 매입 − 에누리 − CS ÷ 1.1`.
+- **블랙리스트**: `computeRisk`, `riskOrders`, `showRiskModal`, `renderBlacklistPane`, `addToBlacklist`, 탭 `blacklist`.
+- **복사 툴바**: `renderCopyBar`, `copyPiece`, `SEQ_PRESETS`, `getAutofillPhone`(내 번호 없으면 차단).
+- **CS 확장**: `CS_TYPES/CS_STEPS/CS_WAIT/CS_LEDGER_KINDS/CS_TEMPLATES_DEFAULT`, 주문의 `o.cs{steps, waitingOn, ledger, pickup, supplierClaim, nextAction…}`, `csOpen/csSync/csBucket/renderCsPane/csDetailHtml`.
+- **대시보드**: `renderTodoPanel`(오늘 할 일, `data-dash-go`), `periodStats`, `renderPeriodTable`, `renderRecentDailyTable`, `dashGo`.
+- **데모 연결점**: `demoOn()`, `persist/saveUiOnly/saveSourcingMap` 의 데모 차단, `nowDate()`(데모 시계), `dailySalesRows/monthlyStats/overviewStats/renderSummary/renderOrdersDashboard/periodStats` 의 오버레이, `renderTabs` 의 `autopilot` 탭, `render()` 의 `Demo.renderPane()`, 끝부분 `window.OH`(내부 API).
 
-```
-core.js       ← 단일 기준. 53열 정의 · 별칭 · 택배사 코드 · 수수료표 · 마진식 · 블랙리스트 판정
-import.js        워크북/붙여넣기 → 표준 모델 (시트 10종 전부)
-template.js      표준 모델 → 수기용 엑셀 양식 (수식·드롭다운·조건부서식)
-xlsx-lite.js     xlsx 읽기(DecompressionStream) / 쓰기(무압축 ZIP). 외부 라이브러리 0개
-app.js           상태·저장·대시보드·가져오기/내보내기·설정
-views.js         주문관리 시트 및 나머지 탭
-index.html       마크업 + 단일 <style> 디자인 토큰
-```
+## 4. 데모 엔진(demo.js) 구조
 
-**양식이 또 바뀌면 `core.js`의 `ORDER_COLUMNS`만 고치면 됩니다.**
-앱 시트, 엑셀 양식, 가져오기 매핑, 수식이 모두 이 배열에서 파생됩니다.
+- `Demo.start()`: 실제 `state`(orders/ops/sourcingMap/blacklist/ui/deleted)를 JSON 스냅샷으로 보관 → 빈 상태 + 합성 블랙리스트 3건 → 420일 과거 집계 생성(`buildHistory`, 최근 30일 평균이 정확히 80억/365) → 오늘 지난 시간만큼 채움(`prefillToday`: 최근 140건은 실제 주문 객체, 나머지는 집계 기준선) → 1초 타이머.
+- 매 초 `simulate(speed초)`: 시간대 가중 포아송으로 주문 생성(`makeOrder`) → 각 주문 `_d.stage` 전진(`advanceOrder`: collected→checked→ordered→invoiced→shipped→delivered, 블랙리스트면 held) → CS(`openCs/advanceCs`: 앱의 `CS_STEPS` 를 그대로 체크, 장부·회수송장 기록, 6% 는 담당자 개입) → DB 작업(`DB_JOBS`) → 예약 이벤트(`runDeferred`) → 시트 창 300건 유지(`evict`: 송장 이후 단계는 예약 이벤트로 집계만 이어감).
+- 앱 오버레이용 API: `dailyRows(최근 60일)`, `monthlyRows`, `overview`, `periodRows`, `kpis`, `now()`.
+- 화면: `buildPane` 1회 골격 → `renderPane` 매초 값만 갱신(카운트업은 rAF `tweenTo`), 피드는 새 항목만 prepend(42개 유지), 차트는 3초마다 SVG 재생성. 발표 모드 `setPresent`.
+- 종료 `Demo.stop()`: 스냅샷 복원, 저장 차단 해제. `?demo=1&speed=60` 또는 새로고침(sessionStorage) 시 자동 시작.
 
-## 2. 왜 SheetJS를 안 쓰나
-
-이전 앱은 `vendor/xlsx.full.min.js`(SheetJS)를 동봉했습니다. 이번에는 `xlsx-lite.js`로 대체했습니다.
-
-- 읽기: ZIP 파싱 + `DecompressionStream('deflate-raw')` (Chrome 103+/Safari 16.4+)
-- 쓰기: 무압축 ZIP + 최소 xlsx 스키마 (서식/수식/드롭다운/조건부서식/틀고정/자동필터)
-- 같은 코드를 node에서도 써서 `tools/build-template.js`로 엑셀 파일을 만듭니다
-
-덕분에 폴더에 벤더 파일이 없어도 되고, 앱과 엑셀 생성기가 **같은 엔진**을 씁니다.
-
-### 파서 함정 (다시 밟지 말 것)
-
-`<c r="AE4" s="130"/>` 처럼 **자기닫힘 셀**을 정규식 `<c\b([^>]*)(?:\/>|>...)`로 잡으면
-속성부가 `/`까지 삼켜서 **다음 셀 값이 앞 칸으로 밀립니다**. 실제로 주문여부·주문고유번호가
-한 칸씩 밀렸습니다. 속성부는 반드시 lazy(`[^>]*?`)여야 합니다.
-`tools/test.js`의 "자기닫힘 셀 뒤 값이 밀리지 않음" 검사가 이 회귀를 막습니다.
-
-## 3. 마진 계산 (워크북 실측값으로 검증됨)
-
-```
-수수료율(VAT) = 수수료율 × 1.1
-결제기준가    = 판매가 × (1 − 수수료율VAT)
-순마진        = (결제기준가 + 배송비순액 − 구매금액 − 에누리) ÷ 1.1
-부가세        = 순마진 × 10%
-마진률        = 순마진 ÷ 판매가
-올라수수료    = 판매가 × 0.96%
-```
-
-워크북 3개 행(49,800/53,150/20,560원)으로 소수점까지 일치 확인했습니다(`tools/test.js` [1]).
-**구매금액이나 수수료율이 없으면 `null`** 로 두고 억지로 0을 만들지 않습니다 — 대시보드의
-"계산 대기"가 그 건수입니다.
-
-## 4. 블랙리스트 판정 — 오탐과의 싸움
-
-처음 구현은 주소 토큰이 3개만 겹쳐도 일치로 봤고, 266건 중 **52건**이 걸렸습니다.
-확인해 보니 "경기도 / 용인시 / 기흥구"처럼 **행정구역만 겹치는 오탐**이 대부분이었습니다.
-
-지금 규칙:
-
-- 주소 토큰을 숫자 포함(번지·동·호수)과 지명으로 나눕니다.
-- 숫자 토큰은 **전부 정확히** 맞아야 합니다(마스킹 `*`는 한 글자 와일드카드).
-- 지명 토큰은 포함관계까지 인정하되 **거의 전부**(3개 이상이면 n−1개) 맞아야 합니다.
-- 숫자 토큰이 없는 등록(예: "인천 계양구 하나아파트")은 토큰 3개 이상 + 전부 일치일 때만.
-- 마스킹 이름(`서현*`)은 주소까지 맞아야 경고합니다. 이름만으로는 안 잡습니다.
-
-결과: 실데이터 266건 중 **1건**(이름 정확일치, 주소 불일치 → 주의). 진짜 일치 케이스는
-`tools/test.js` [3]에서 합성 데이터로 계속 검증합니다.
-
-**오탐을 줄이려고 규칙을 느슨하게 만들지 마세요.** 반대로, 놓치는 게 걱정되면
-블랙리스트 탭에서 주소를 더 구체적으로 등록하는 쪽이 맞습니다.
-
-## 5. 엑셀 양식(수기용)에 들어간 것
-
-`template.js` → 12시트: 사용법 / 대시보드 / 주문서 / CS / 블랙리스트 / 송장업로드 / 사입 / 수수료 / DAY / MON / 계정카드정보 / 목록
-
-- **주문서**: 헤더 3행 유지, 원본 53열 + `블랙리스트`·`진행상태` 2열 추가.
-  계산 열 전체가 수식이고, 빈 행 400개에도 수식이 미리 깔려 있습니다.
-- **드롭다운**: 담당자/구매처/카드/주문여부/배송사/카테고리 (이름정의 → `목록` 시트).
-- **조건부서식**: 위험=빨강, 주소확인=노랑, 업로드완료=초록, 역마진=회색 취소선.
-- **블랙리스트 경고 수식**: `COUNTIF`의 `*` 와일드카드가 마스킹 이름을 그대로 잡아줍니다.
-- **대시보드/DAY/MON**: 전부 `SUMIFS`. 주문서에 입력하면 즉시 반영됩니다.
-- 파란 칸 = 직접 입력, 흰 칸 = 자동. 사용법 시트에 색 규칙을 적어 뒀습니다.
-
-날짜는 반드시 **엑셀 직렬값**으로 씁니다(`Core.toSerial`). 문자열로 넣으면
-`매출일자 = INT(주문일)`이 깨져 대시보드 SUMIFS가 전부 0이 됩니다. 한 번 밟은 함정입니다.
-
-## 6. 지켜야 할 원칙 (사용자가 명시)
-
-1. 100% 로컬. 고객 개인정보 외부 전송 금지.
-2. 자동 로그인·자동 결제·자동 구매·크롤러 금지. "링크 열기 + 입력 보조"까지만.
-3. 배송지 복사의 연락처는 **설정의 내 번호**. 고객 번호를 구매처에 노출하지 않습니다.
-4. 계정·카드는 백업/엑셀 내보내기에서 제외(`LS.secrets`에 따로 저장, 화면 기본 마스킹).
-5. 내보내기는 `sanitizeCell`로 formula injection 방어.
-6. 디자인은 애플식: 과한 볼드(700+) 금지, 화면당 파란 primary 버튼 1개, 행 높이 낮게.
-
-## 7. 다음에 할 만한 것
-
-1. **구매가·구매링크 자동 수집** — 보고 있는 소싱 페이지에서 가격/URL 1건만 북마클릿으로 가져오기.
-   (대량 크롤링은 사용자가 명시적으로 거절)
-2. **주소 자동입력 확장** — 이전 `naver-autofill-extension`을 이 앱의 클립보드 포맷에 맞춰 이식.
-   지금은 `준비 ↗`가 사람이 읽는 텍스트를 복사합니다. 확장을 붙이려면 JSON 페이로드를 같이 넣으면 됩니다.
-3. **일별/월별 목표 대비** — DAY/MON에 목표치 열 추가.
-4. **수강생/강사 공유** — 로컬 원칙과 충돌하므로 착수 전 반드시 구조 합의부터.
-
-## 8. 검증
+## 5. 검증 방법
 
 ```bash
-node tools/test.js <원본워크북.xlsx>   # 52개 검사 (마진·블랙리스트·파서·왕복·실데이터)
-node tools/smoke.js <원본워크북.xlsx>  # 브라우저에서 전 탭 렌더 + 상호작용 + 다운로드
-SHOTS=1 node tools/smoke.js <원본.xlsx>  # /tmp/shots 에 탭별 스크린샷
+npm install
+node tools/test-copy.js && npm run test:biff && npm test
+node tools/smoke.js sample/소스샘플_36열.xls      # 24건 업로드 → 복사 툴바 → CS 흐름 → 내보내기 7종
+node tools/verify-export.js /tmp/smoke-btn-exp-src-xls.xls sample/소스샘플_36열.xlsx
+SHOTS=1 node tools/demo-smoke.js 25 600           # 데모: 80억 페이스·탭 렌더·DOM 안정·종료 복원 (/tmp/shots/demo-*.png)
 ```
 
-`smoke.js`는 콘솔 에러가 하나라도 있으면 실패로 끝납니다. 화면을 고친 뒤 반드시 돌리세요.
+## 6. 아직 안 한 것 / 알려진 한계
+
+- GitHub 푸시가 403(Claude GitHub App 미설치)이라 커밋은 로컬 브랜치 `claude/order-management-system-upgrade-oxv1kf` 에만 있습니다. 앱 설치 후 `git push -u origin <브랜치>` 하고 PR 을 만들면 됩니다.
+- 택배사 T코드 중 우체국 T005·경동 T060·대신 T044·일양 T042·직접배송 T098 은 출처 미확인.
+- 데모의 마진율(약 14%)은 앱의 기본 수수료율(10.8%)로 계산된 값이라 워크북 실적(약 11%)보다 조금 높습니다. 설정의 카테고리 수수료율을 바꾸면 같이 바뀝니다.
+- 시트 열 구성이 바뀌면 `SHEET_LAYOUT_VERSION` 과 `?v=` 를 같이 올려야 사용자 브라우저에 반영됩니다.

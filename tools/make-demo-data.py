@@ -27,9 +27,12 @@ def num(v):
     except Exception: return None
 
 def clean_name(s):
-    s = re.sub(r"^\s*\[#?\s*\d+\s*[\]\}]\s*", "", str(s or ""))          # [#15] 태그 제거
-    s = re.sub(r"\s+", " ", s).strip()
-    return s[:40]
+    s = str(s or "")
+    s = re.sub(r"\[[^\]]*[\]\}]", " ", s)                                   # [#15] · [특허농법] 같은 대괄호 태그 제거
+    s = re.sub(r"재구매폭주|초고당도\s*brix|초고당도|프리미엄|제주직송|전국최저특가|전국최저마진|국내산|산지직송|당일수확|무료배송", " ", s, flags=re.I)
+    s = s.replace("_", "")
+    s = re.sub(r"\s+", " ", s).strip(" -·/")
+    return s[:24]
 
 # ---------- 주문 이력 (운송장 전송후) ----------
 H, it = rows_of("운송장 전송후")

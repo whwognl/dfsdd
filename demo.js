@@ -52,6 +52,7 @@
     return { id:"DEMO" + (1001 + i), name:p.name, opt:p.opt || "", n:p.n || 1, price:p.price, cost:p.cost, vendor:p.vendor || "구매처", courier:p.courier || "CJ대한통운", qty:p.qty || { "1":9, "2":1 } };
   });
   var W_SUM = PRODUCTS.reduce(function (s, p) { return s + p.n; }, 0);
+  var VENDOR_N = (function () { var m = {}; PRODUCTS.forEach(function (p) { m[p.vendor] = 1; }); return Object.keys(m).length; })();
   var AOV = PRODUCTS.reduce(function (s, p) { return s + p.price * p.n; }, 0) / W_SUM;
   var ORDERS_PER_DAY = DAY_TARGET / AOV;
   function normalizeTo(arr, len) {
@@ -347,7 +348,10 @@
       D.yHourly = D.hourly.slice();
     }
     D.dayKey = k; D.today = freshDay(); D.hourly = []; for (var i = 0; i < 24; i++) D.hourly.push(0);
-    D.todayNoise = 0.9 + rnd() * 0.2;
+    // 오늘 수준은 어제 실적에 붙여서(±) — "어제 같은 시각 대비" 가 자연스럽게 한 자리 %로
+    var yk2 = dayKeyOf(new Date(tms - DAY)), yd = D.days[yk2];
+    var yBase = yd ? yd.rev / (DAY_TARGET * WDAY_W[wdayIdx(new Date(tms - DAY))]) : 1;
+    D.todayNoise = Math.max(0.85, Math.min(1.15, yBase)) * (0.99 + rnd() * 0.08);
     D.stages = { collected:0, checked:0, held:0, ordered:0, invoiced:0, shipped:0, delivered:0 };
   }
   // 시작 시 오늘 이미 지난 시간만큼 채우기(주문 객체는 최근 것만 만들고 나머지는 집계로)
@@ -401,6 +405,7 @@
         so._d.cs.next = tms + ri(1, 8) * MIN;
       }
     }
+    D.bots.order.count = D.stages.ordered; D.bots.invoice.count = D.stages.invoiced; D.bots.cs.count = D.today.cs; D.bots.security.count = D.stages.checked; D.bots.db.count = ri(30, 60);
     D.cs.opened = D.today.cs; D.cs.open = seeded; D.cs.closed = Math.max(0, Math.round((D.today.cs - seeded) * 0.9));
     D.cs.human = Math.round(D.cs.closed * 0.06); D.cs.auto = D.cs.closed - D.cs.human; D.human = Math.max(0, D.human);
     D.feed.length = 0;
@@ -436,11 +441,17 @@
     var last30 = sumRange(dayKeyOf(new Date(t.getTime() - 30 * DAY)), yk);
     var pace = Math.round(last30.rev / 30 * 365);
     var processed = D.stages.ordered + D.stages.invoiced + D.stages.shipped;
+    var d0 = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    var expDay = Math.round(ORDERS_PER_DAY * WDAY_W[wdayIdx(t)] * (D.todayNoise || 1) * AOV);
+    var frac = (t.getTime() - d0.getTime()) / DAY, h = t.getHours(), hf = (t.getTime() - d0.getTime() - h * HOUR) / HOUR;
+    var ySame = 0; for (var i = 0; i < h; i++) ySame += D.yHourly[i] || 0; ySame += (D.yHourly[h] || 0) * hf;
+    var vsY = ySame ? (D.today.rev - ySame) / ySame * 100 : 0;
     var autoRate = D.stages.collected ? Math.max(90, 100 - (D.stages.held + D.cs.human) / Math.max(1, D.stages.collected) * 100) : 99.2;
     return {
       today:D.today, yesterday:D.days[yk] || freshDay(), month:month, lastMonth:lastMonth, ytd:ytd, pace:pace, paceRatio:pace / YEAR_TARGET,
       autoRate:Math.round(autoRate * 10) / 10, human:D.human, stages:D.stages, cs:D.cs, processed:processed,
-      csAutoRate:D.cs.closed ? Math.round(D.cs.auto / D.cs.closed * 1000) / 10 : 94.0, aov:AOV, perDay:Math.round(ORDERS_PER_DAY)
+      csAutoRate:D.cs.closed ? Math.round(D.cs.auto / D.cs.closed * 1000) / 10 : 94.0, aov:AOV, perDay:Math.round(ORDERS_PER_DAY),
+      expDay:expDay, todayPct:Math.min(100, Math.round(D.today.rev / expDay * 100)), vsY:vsY, frac:frac, vendors:VENDOR_N, leadTime:1.6
     };
   }
   // app.js 에서 부르는 오버레이
@@ -570,7 +581,8 @@
     $pane.innerHTML =
       '<div class="ap">' +
         '<div class="ap-head">' +
-          '<div class="ap-title"><span class="ap-live"><i></i>LIVE</span><h2>자동화 관제</h2><span class="ap-sim">시뮬레이션 · 실제 계정과 연결되지 않음</span></div>' +
+          '<div class="ap-title"><span class="ap-live"><i></i>LIVE</span><div><h2>오토파일럿 관제</h2><small>쿠팡 위탁판매 자동화 · 주문 · CS · 매출 · DB</small></div><span class="ap-sim">시뮬레이션 · 합성 데이터</span>' +
+            '<span class="ap-botdots">' + ["주문봇", "송장봇", "CS봇", "DB봇", "보안봇"].map(function (n) { return '<b><i></i>' + n + '</b>'; }).join("") + '</span></div>' +
           '<div class="ap-clock"><b data-k="clock">--:--:--</b><span data-k="date"></span></div>' +
           '<div class="ap-ctl">' +
             '<span class="ap-speed">' + [1, 60, 600].map(function (s) { return '<button type="button" data-speed="' + s + '" class="' + (s === D.speed ? "on" : "") + '">' + s + '×</button>'; }).join("") + '</span>' +
@@ -579,7 +591,7 @@
           '</div>' +
         '</div>' +
         '<div class="ap-kpis">' +
-          kpi("today", "오늘 매출", "", "오늘 처리 <b data-k=\"todayCnt\">0</b>건 · 시간당 <b data-k=\"perHour\">0</b>건") +
+          kpi("today", "오늘 매출", "hero", "어제 같은 시각 대비 <b data-k=\"vsY\">—</b> · 시간당 <b data-k=\"perHour\">0</b>건 · 오늘 <b data-k=\"todayCnt\">0</b>건<div class=\"bar\"><span data-k=\"todayBar\"></span></div><div class=\"bar-l\">오늘 예상 <b data-k=\"todayExp\">—</b> · <b data-k=\"todayPct\">0</b>% 진행</div>") +
           kpi("pace", "연매출 페이스", "ring", "목표 80억 대비 <b data-k=\"paceRatio\">100</b>%") +
           kpi("month", "이번 달 매출", "", "지난 달 <b data-k=\"lastMonth\">—</b>") +
           kpi("ytd", "올해 누적", "", "<b data-k=\"ytdCnt\">0</b>건") +
@@ -653,6 +665,8 @@
     tweenTo("margin", k.today.margin, function (v) { return OH.won(Math.round(v)); });
     tweenTo("auto", k.autoRate, function (v) { return v.toFixed(1) + "%"; });
     setText("todayCnt", OH.comma(k.today.cnt)); setText("perHour", Math.round(k.perDay * HOUR_W[t.getHours()] / 24));
+    setText("vsY", (k.vsY >= 0 ? "+" : "") + k.vsY.toFixed(1) + "%"); var vy = el('[data-k="vsY"]'); if (vy) vy.classList.toggle("neg", k.vsY < 0);
+    setText("todayExp", wonShort(k.expDay)); setText("todayPct", k.todayPct); var tb = el('[data-k="todayBar"]'); if (tb) tb.style.width = k.todayPct + "%";
     setText("paceRatio", (k.paceRatio * 100).toFixed(1)); setText("lastMonth", wonShort(k.lastMonth.rev)); setText("ytdCnt", OH.comma(k.ytd.cnt));
     setText("rate", k.today.rev ? (k.today.margin / k.today.rev * 100).toFixed(1) : "0"); setText("csCost", OH.won(-k.today.csCost));
     setText("human", k.human); var hEl = el('[data-k="human"]'); if (hEl) hEl.classList.toggle("hot", k.human > 0);
@@ -660,16 +674,28 @@
     renderPipe(k); renderFeed(); renderCs(); renderBots(); renderDb();
     if (D.tick % 3 === 0 || !el('[data-k="chart30"] svg')) renderCharts(k);
   }
+  var ICON = {
+    inbox:'<svg viewBox="0 0 24 24"><path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/></svg>',
+    shield:'<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+    cart:'<svg viewBox="0 0 24 24"><path d="M3 4h2l2.5 11h11L21 7H6"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg>',
+    tag:'<svg viewBox="0 0 24 24"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/></svg>',
+    truck:'<svg viewBox="0 0 24 24"><path d="M2 6h12v10H2z"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="6" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg>',
+    check:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>'
+  };
   function renderPipe(k) {
     var s = k.stages, box = el('[data-k="pipe"]'); if (!box) return;
-    var steps = [["수집", s.collected, "orders:all"], ["검수", s.checked, "blacklist"], ["발주", s.ordered, "orders:purchased"], ["송장", s.invoiced, "invoice"], ["발송", s.shipped, "invoice"], ["배송완료", s.delivered, "daily"]];
-    var html = steps.map(function (x, i) {
-      return (i ? '<div class="ap-flow"><i></i><i></i><i></i></div>' : "") +
-        '<button type="button" class="ap-stage" data-ap-go="' + x[2] + '"><span class="n" data-k="st' + i + '">' + OH.comma(x[1]) + '</span><span class="l">' + x[0] + '</span></button>';
-    }).join("");
-    html += '<div class="ap-held' + (s.held ? " on" : "") + '"><b>' + s.held + '</b>보류(블랙리스트)</div>';
-    if (!box.firstChild || box.getAttribute("data-n") !== String(steps.length)) { box.innerHTML = html; box.setAttribute("data-n", String(steps.length)); }
-    else { steps.forEach(function (x, i) { setText("st" + i, OH.comma(x[1])); }); var h = box.querySelector(".ap-held"); if (h) { h.classList.toggle("on", !!s.held); h.querySelector("b").textContent = s.held; } }
+    var steps = [["수집", s.collected, "orders:all", "쿠팡 수집 · 5분 주기", ICON.inbox], ["검수", s.checked, "blacklist", "블랙리스트 · 마스킹", ICON.shield], ["발주", s.ordered, "orders:purchased", "구매처 " + k.vendors + "곳 자동", ICON.cart],
+      ["송장", s.invoiced, "invoice", "자동 등록", ICON.tag], ["발송", s.shipped, "invoice", "CJ · 롯데 · 한진", ICON.truck], ["배송완료", s.delivered, "daily", "자동 확인", ICON.check]];
+    if (!box.firstChild) {
+      box.innerHTML = '<div class="ap-pipe-row">' + steps.map(function (x, i) {
+        return (i ? '<div class="ap-flow"><i></i><i></i><i></i></div>' : "") +
+          '<button type="button" class="ap-stage" data-ap-go="' + x[2] + '"><span class="ic">' + x[4] + '</span><span class="n" data-k="st' + i + '">' + OH.comma(x[1]) + '</span><span class="l">' + x[0] + '</span><span class="sl">' + x[3] + '</span></button>';
+      }).join("") + '</div>' +
+      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건 · 담당자 확인</span><span class="sp"></span><span>흐름 중 <b data-k="pfFlow">0</b>건</span></div>';
+    }
+    steps.forEach(function (x, i) { setText("st" + i, OH.comma(x[1])); });
+    setText("pfInv", OH.comma(s.invoiced)); setText("pfFlow", OH.comma(Math.max(0, s.collected - s.shipped)));
+    var hb = el('[data-k="pfHeld"]'); if (hb) { hb.classList.toggle("on", !!s.held); hb.querySelector("b").textContent = s.held; }
   }
   function renderFeed() {
     var ol = el('[data-k="feed"]'); if (!ol) return;
@@ -692,9 +718,10 @@
       var steps = OH.csStepsFor(o), done = 0; steps.forEach(function (s) { if (o.cs.steps[s[0]]) done++; });
       var last = (o.memoLog || []).slice().reverse().filter(function (m) { return m.kind === "note"; })[0];
       var waiting = o.cs.nextAction ? "담당자 확인" : ({ me:"봇 처리 중", customer:"고객 회신 대기", supplier:"구매처 대기", courier:"회수 대기", coupang:"쿠팡 대기" })[o.cs.waitingOn] || "진행";
+      var cid = "#CS-" + (4100 + (parseInt(String(o.uniqueNo || "0").slice(-3), 10) || 0));
       return '<div class="ap-csi' + (o.cs.nextAction ? " hot" : "") + '" data-ap-go="cs">' +
-        '<div class="r1"><span class="type">' + esc(o.csType) + '</span><span class="who">' + esc(o.recipient) + ' · ' + esc(o.productName) + ' ' + esc(o.option) + '</span><span class="wait">' + esc(waiting) + '</span></div>' +
-        '<div class="steps">' + steps.map(function (s, i) { return '<i class="' + (o.cs.steps[s[0]] ? "on" : (i === done ? "cur" : "")) + '" title="' + esc(s[1]) + '"></i>'; }).join("") + '<span>' + done + '/' + steps.length + '</span></div>' +
+        '<div class="r1"><span class="type">' + esc(o.csType) + '</span><span class="who">' + esc(o.productName) + ' ' + esc(o.option) + ' · ' + esc(o.recipient) + '</span><span class="cid">' + cid + '</span><span class="wait">' + esc(waiting) + '</span></div>' +
+        '<div class="steps"><span class="line"></span>' + steps.map(function (s, i) { return '<i class="' + (o.cs.steps[s[0]] ? "on" : (i === done ? "cur" : "")) + '" title="' + esc(s[1]) + '"></i>'; }).join("") + '<span class="cnt">' + done + '/' + steps.length + '</span></div>' +
         (last ? '<div class="bubble"><span class="ai">AI</span>' + esc(String(last.text).replace(/^AI 응대 발송: /, "")) + '</div>' : "") +
       '</div>';
     }).join("");
@@ -703,7 +730,8 @@
     var box = el('[data-k="bots"]'); if (!box) return;
     box.innerHTML = Object.keys(D.bots).map(function (k) {
       var b = D.bots[k], hot = D.tick - (b.pulse || -99) < 3;
-      return '<div class="ap-bot' + (hot ? " hot" : "") + '"><i></i><div><b>' + esc(b.name) + '</b><span>' + esc(b.role) + '</span></div><div class="task">' + esc(b.task) + '</div><div class="cnt">' + (b.count ? OH.comma(b.count) + "건" : "") + '</div></div>';
+      var up = (99.93 + (k.charCodeAt(0) % 5) / 100).toFixed(2);
+      return '<div class="ap-bot' + (hot ? " hot" : "") + '"><i></i><div><b>' + esc(b.name) + '</b><span>' + esc(b.role) + '</span></div><div class="task">' + esc(b.task) + '</div><div class="cnt"><b>' + (b.count ? OH.comma(b.count) + "건" : "—") + '</b><span>가동 ' + up + '%</span></div></div>';
     }).join("");
   }
   function renderDb() {
@@ -726,14 +754,20 @@
         var h = Math.max(2, r.rev / max * (H - 6)); var today = i === last30.length - 1;
         return '<rect x="' + (i * (bw + gap)).toFixed(1) + '" y="' + (H - h).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2" class="' + (today ? "today" : "") + '"/>';
       }).join("") + '</svg>';
-      setText("c30", "합계 " + wonShort(last30.reduce(function (s, r) { return s + r.rev; }, 0)) + " · 일평균 " + wonShort(last30.reduce(function (s, r) { return s + r.rev; }, 0) / last30.length));
+      b30.innerHTML += '<div class="ap-xl"><span>' + last30[0].date.slice(5).replace("-", "/") + '</span><span>' + last30[10].date.slice(5).replace("-", "/") + '</span><span>' + last30[20].date.slice(5).replace("-", "/") + '</span><span class="hl">오늘</span></div>';
+      setText("c30", "일평균 " + wonShort(last30.reduce(function (s, r) { return s + r.rev; }, 0) / last30.length) + " · 최고 " + wonShort(max));
     }
     var bh = el('[data-k="chartH"]'); if (bh) {
       var cum = [], cy = [], a = 0, b = 0, i;
       for (i = 0; i < 24; i++) { a += D.hourly[i] || 0; b += D.yHourly[i] || 0; cum.push(a); cy.push(b); }
-      var hmax = Math.max(cum[23], cy[23]) || 1, h = nowDate().getHours();
-      function path(arr, upto) { var s = ""; for (var j = 0; j <= upto; j++) s += (j ? "L" : "M") + (j / 23 * W).toFixed(1) + "," + (H - 4 - arr[j] / hmax * (H - 10)).toFixed(1); return s; }
-      bh.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><path class="y" d="' + path(cy, 23) + '"/><path class="t" d="' + path(cum, h) + '"/><circle class="dot" cx="' + (h / 23 * W).toFixed(1) + '" cy="' + (H - 4 - cum[h] / hmax * (H - 10)).toFixed(1) + '" r="4"/></svg>';
+      var h = nowDate().getHours(), proj = [], acc = cum[h], rest = 0, j;
+      for (j = h + 1; j < 24; j++) rest += HOUR_W[j];
+      var remain = Math.max(0, k.expDay - cum[h]);
+      for (j = 0; j < 24; j++) { if (j <= h) proj.push(cum[j]); else { acc += rest ? remain * HOUR_W[j] / rest : 0; proj.push(acc); } }
+      var hmax = Math.max(cum[23], cy[23], proj[23]) || 1;
+      function path(arr, from, upto) { var s = ""; for (var q = from; q <= upto; q++) s += (q === from ? "M" : "L") + (q / 23 * W).toFixed(1) + "," + (H - 4 - arr[q] / hmax * (H - 10)).toFixed(1); return s; }
+      bh.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><path class="y" d="' + path(cy, 0, 23) + '"/><path class="p" d="' + path(proj, h, 23) + '"/><path class="t" d="' + path(cum, 0, h) + '"/><circle class="dot" cx="' + (h / 23 * W).toFixed(1) + '" cy="' + (H - 4 - cum[h] / hmax * (H - 10)).toFixed(1) + '" r="4"/></svg>' +
+        '<div class="ap-xl"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>24시</span></div><div class="ap-lg"><i class="t"></i>오늘 누적 <i class="p"></i>예상 <i class="y"></i>어제</div>';
     }
     var b12 = el('[data-k="chart12"]'); if (b12) {
       var ms = monthRows().slice(-12), mmax = Math.max.apply(null, ms.map(function (m) { return m.rev; })) || 1, bw2 = (W - 8 * 11) / 12;

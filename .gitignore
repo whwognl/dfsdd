@@ -11,3 +11,6 @@ package-lock.json
 !sample/*.xlsx
 !sample/*.xls
 !sample/*.csv
+
+# 목업 스크린샷(용량) — HTML 만 커밋
+docs/design/mock/*.png
