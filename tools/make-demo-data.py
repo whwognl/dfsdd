@@ -12,6 +12,11 @@ import openpyxl
 
 SRC = sys.argv[1]
 OUT = sys.argv[2] if len(sys.argv) > 2 else "demo-data.js"
+ANON = "--anon-vendors" in sys.argv          # 구매처 상호를 '구매처 A/B/C…' 로 가명 처리(공개용)
+VENDOR_ALIAS = {"pbf": "PBF", "제이비티엠": "JBTM", "웰그린": "웰그린푸드", "웰그린(업푸르트)": "웰그린푸드", "웰그린푸드(업푸르트)": "웰그린푸드"}
+def norm_vendor(v):
+    v = re.sub(r"\s+", " ", str(v or "")).strip()
+    return VENDOR_ALIAS.get(v, VENDOR_ALIAS.get(v.lower(), v))
 wb = openpyxl.load_workbook(SRC, read_only=True, data_only=True)
 
 def rows_of(name):
@@ -27,12 +32,20 @@ def num(v):
     except Exception: return None
 
 def clean_name(s):
-    s = str(s or "")
+    s = str(s or "").translate(str.maketrans({"（": "(", "）": ")", "，": ",", "\u3000": " ", "\xa0": " "}))
     s = re.sub(r"\[[^\]]*[\]\}]", " ", s)                                   # [#15] · [특허농법] 같은 대괄호 태그 제거
     s = re.sub(r"재구매폭주|초고당도\s*brix|초고당도|프리미엄|제주직송|전국최저특가|전국최저마진|국내산|산지직송|당일수확|무료배송", " ", s, flags=re.I)
     s = s.replace("_", "")
-    s = re.sub(r"\s+", " ", s).strip(" -·/")
-    return s[:24]
+    s = tidy(s)
+    s = s[:24]
+    s = re.sub(r"\s*\([^)]*$", "", s).strip()                                # 잘려 열린 괄호
+    return tidy(s)
+
+def tidy(s):
+    s = re.sub(r"\([^가-힣A-Za-z0-9]*\)", " ", s)                            # 빈 괄호(공백·기호만)
+    s = re.sub(r"(\s*[,·]\s*)+", ", ", s)                                     # 쉼표 연속 정리
+    s = re.sub(r"[,·]\s*(?=[,·]|$)", " ", s)                                  # 남은 쉼표 조각
+    return re.sub(r"\s+", " ", s).strip(" -·/,")
 
 # ---------- 주문 이력 (운송장 전송후) ----------
 H, it = rows_of("운송장 전송후")
@@ -47,7 +60,7 @@ for r in it:
     if not name: continue
     n_rows += 1
     nm = clean_name(name); op = re.sub(r"\s+", " ", str(opt or "")).strip()[:24]
-    if op and op in nm: nm = nm.replace(op, " ").strip(" -·/")          # 상품명에 옵션이 또 들어 있으면 제거
+    if op and op in nm: nm = tidy(nm.replace(op, " "))                  # 상품명에 옵션이 또 들어 있으면 제거
     key = (nm, op)
     p = prod[key]; p["n"] += 1
     sp = num(r[ix["(실)판매가"]]) or num(r[ix["판매가"]]); cp = num(r[ix["매입가"]]); mg = num(r[ix["순마진"]])
@@ -55,7 +68,7 @@ for r in it:
     if sp and sp > 0: p["price"].append(sp)
     if cp and cp > 0: p["cost"].append(cp)
     if mg is not None: p["margin"].append(mg)
-    v = str(r[ix["거래처"]] or "").strip(); c = str(r[ix["택배사"]] or "").strip()
+    v = norm_vendor(r[ix["거래처"]]); c = str(r[ix["택배사"]] or "").strip()
     if v: p["vendor"][v] += 1; vendors[v] += 1
     if c: p["courier"][c] += 1; couriers[c] += 1
     q = int(num(r[ix["주문수량"]]) or 1); p["qty"][q] += 1; qtys[q] += 1
@@ -77,6 +90,17 @@ for (name, opt), p in prod.items():
         "qty": {str(k): v for k, v in p["qty"].most_common(4)}
     })
 products.sort(key=lambda x: -x["n"]); products = products[:80]
+# 거래처가 빈 상품은 같은 상품명의 최다 거래처, 없으면 '산지농가'
+by_name = collections.defaultdict(collections.Counter)
+for p in products:
+    if p["vendor"]: by_name[p["name"]][p["vendor"]] += p["n"]
+for p in products:
+    if not p["vendor"]: p["vendor"] = (by_name[p["name"]].most_common(1) or [("산지농가", 0)])[0][0]
+if ANON:
+    names = sorted(set(p["vendor"] for p in products), key=lambda v: -vendors.get(v, 0))
+    alias = {v: "구매처 " + chr(65 + i) if i < 26 else "구매처 " + str(i + 1) for i, v in enumerate(names)}
+    for p in products: p["vendor"] = alias[p["vendor"]]
+    vendors = collections.Counter({alias.get(k, k): v for k, v in vendors.items() if k in alias})
 
 # ---------- 일별 매출 흔들림 (매출요약) ----------
 H2, it2 = rows_of("매출요약")

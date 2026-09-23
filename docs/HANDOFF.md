@@ -23,7 +23,7 @@
 | `blacklist.js` | 이름(마스킹 와일드카드)·주소(숫자 토큰 정확일치)·전화(뒤 8자리) 판정 | 행정구역만 겹치는 건 일치 아님 |
 | `copy-helpers.js` | 주소 분리(도로명/지번/추정), 전화 형식(자릿수), 자동입력 페이로드 v2 | 전화는 항상 '내 번호' |
 | `demo.js` | 관제 데모 엔진+화면. `window.Demo` | 아래 4절 |
-| `demo-data.js` | `tools/make-demo-data.py` 산출. 상품·가격·구매처·택배사·지역·시간대·CS 비율 | 개인정보 넣지 말 것 |
+| `demo-data.js` | `tools/make-demo-data.py` 산출. 상품·가격·구매처·택배사·지역·시간대·CS 비율 | 개인정보 넣지 말 것. 구매처 상호까지 가리려면 `--anon-vendors` 옵션 |
 | `tools/` | `smoke.js`(Playwright 전체 흐름) · `demo-smoke.js` · `verify-export.js` · `test-biff.js` · `test-copy.js` | 모두 `node tools/<파일>` |
 | `docs/design/` | 01 구앱 지도 · 02 CS 사례 분석 · 03 소스 어댑터 스펙 · 04 원클릭 복사 스펙 · 05 BIFF 엔진 · `mock/` 관제 화면 목업(HTML) | 보고서에 개인정보 없음 |
 
@@ -40,7 +40,7 @@
 
 ## 4. 데모 엔진(demo.js) 구조
 
-- `Demo.start()`: 실제 `state`(orders/ops/sourcingMap/blacklist/ui/deleted)를 JSON 스냅샷으로 보관 → 빈 상태 + 합성 블랙리스트 3건 → 420일 과거 집계 생성(`buildHistory`, 최근 30일 평균이 정확히 80억/365) → 오늘 지난 시간만큼 채움(`prefillToday`: 최근 140건은 실제 주문 객체, 나머지는 집계 기준선) → 1초 타이머.
+- `Demo.start()`: 실제 `state`(orders/ops/sourcingMap/blacklist/ui/deleted)를 JSON 스냅샷으로 보관 → 빈 상태 + 합성 블랙리스트 3건 → 420일 과거 집계 생성(`buildHistory`, 최근 4주 평균 × 1.012 ≈ 81억 페이스 — 딱 100.0% 로 보이지 않게) → 오늘 지난 시간만큼 채움(`prefillToday`: 최근 140건은 실제 주문 객체, 나머지는 집계 기준선) → 1초 타이머.
 - 매 초 `simulate(speed초)`: 시간대 가중 포아송으로 주문 생성(`makeOrder`) → 각 주문 `_d.stage` 전진(`advanceOrder`: collected→checked→ordered→invoiced→shipped→delivered, 블랙리스트면 held) → CS(`openCs/advanceCs`: 앱의 `CS_STEPS` 를 그대로 체크, 장부·회수송장 기록, 6% 는 담당자 개입) → DB 작업(`DB_JOBS`) → 예약 이벤트(`runDeferred`) → 시트 창 300건 유지(`evict`: 송장 이후 단계는 예약 이벤트로 집계만 이어감).
 - 앱 오버레이용 API: `dailyRows(최근 60일)`, `monthlyRows`, `overview`, `periodRows`, `kpis`, `now()`.
 - 화면: `buildPane` 1회 골격 → `renderPane` 매초 값만 갱신(카운트업은 rAF `tweenTo`), 피드는 새 항목만 prepend(42개 유지), 차트는 3초마다 SVG 재생성. 발표 모드 `setPresent`.

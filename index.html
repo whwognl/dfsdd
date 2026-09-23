@@ -542,6 +542,11 @@
   .btn.demo{border-color:var(--brand-line); color:var(--brand); background:var(--brand-bg)}
   .btn.demo.on{background:var(--brand); color:#fff; border-color:var(--brand)}
   body.demo-on #btn-security-clear, body.demo-on #btn-import-workbook, body.demo-on #btn-rules-default{display:none}
+  #demo-strip{display:none; align-items:center; gap:10px; background:#0b0f17; color:#e8edf5; border-radius:var(--r-md); padding:8px 14px; margin-bottom:12px; font-size:var(--fs-footnote)}
+  #demo-strip .dot{width:8px; height:8px; border-radius:50%; background:#30d158; animation:ap-pulse 1.6s infinite}
+  #demo-strip b{font-weight:var(--w-semi)} #demo-strip .btn{background:transparent; color:#e8edf5; border-color:#2b3a52}
+  body.demo-on:not(.ap-tab) #demo-strip{display:flex}
+  body.demo-on .sheet-savedot{visibility:hidden}
   .tab.live{color:var(--brand); font-weight:var(--w-semi)}
   .tab.live::before{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:#34c759; margin-right:6px; vertical-align:1px}
   @media(max-width:1366px){.tabs .tab{padding:9px 8px; font-size:13px}}
@@ -759,6 +764,7 @@
 
   <!-- ===== 대시보드(앱 본체) — 상단 탭 + 탭별 패널 ===== -->
   <section id="view-dashboard" class="hidden">
+    <div id="demo-strip"><span class="dot"></span><b>시뮬레이션</b><span>지금 보이는 숫자는 합성 데이터입니다 — 실제 데이터는 보관 중이고 저장되지 않습니다.</span><span class="spacer"></span><button class="btn sm" type="button" data-demo-go>관제 화면으로</button><button class="btn sm" type="button" data-demo-stop>데모 종료</button></div>
     <div class="process-strip" id="process-strip"></div>
     <nav class="tabs" id="tabnav"></nav>
 

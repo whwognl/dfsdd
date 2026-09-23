@@ -78,15 +78,21 @@
   var CS_RATE = 0.036;
   var CS_REASON = { "반품접수":["단순변심", "등급차이", "파손"], "차액협의":["등급차이", "파손"], "출고중지요청":["단순변심", "오주문"], "배송문의":["배송지연"], "택배미수령":["미수령"], "품절취소":["품절"], "과배송":["기타"], "교환문의":["오주문", "파손"] };
   // 단계별 AI 응대 멘트(유형 → 단계 인덱스 → 문장). 실제 발송되는 건 없음
+  // "※" 로 시작하는 줄은 고객에게 보내는 말이 아니라 내부 처리 기록. 결제·송금은 사람이 하고 봇은 확인·기록만 합니다.
   var CS_LINES = {
-    "반품접수": ["불편을 드려 죄송합니다. 반품 접수를 도와드리겠습니다. 회수 택배가 방문할 수 있는 연락처를 확인해 주세요.", "쿠팡 반품 접수가 확인되었습니다.", "구매처에 반품 신청을 완료했습니다(반품비 6,000원 장부 기록).", "회수 송장이 등록되었습니다. 기사님이 1~2일 내 방문합니다.", "회수가 완료되었습니다. 환불은 영업일 기준 2~3일 내 처리됩니다.", "구매처 환불이 확인되어 정산에 반영했습니다.", "처리가 모두 끝났습니다. 이용해 주셔서 감사합니다."],
-    "차액협의": ["불편을 드려 죄송합니다. 반품 대신 3,000원을 차액으로 보내드리는 방법은 어떠실까요?", "고객님이 수락하셨습니다. 입금 계좌를 확인했습니다.", "차액 3,000원 입금을 완료했습니다.", "처리가 끝났습니다. 감사합니다."],
-    "출고중지요청": ["취소 요청을 확인했습니다. 출고 전이라 바로 처리해 드리겠습니다.", "구매처에 취소를 요청했습니다.", "취소가 확인되어 환불이 진행됩니다.", "처리가 끝났습니다."],
-    "택배미수령": ["미수령 신고를 확인했습니다. 택배사에 배송 위치를 조회 요청했습니다.", "쿠팡 처리 상태를 확인했습니다.", "구매처에 반품/취소 접수를 완료했습니다.", "환불이 확인되었습니다.", "처리가 끝났습니다."],
-    "품절취소": ["구매처 품절이 확인되었습니다.", "쿠팡에서 취소·환불 처리를 완료했습니다.", "주문하신 상품이 공급사 품절로 부득이 취소·환불되었습니다. 진심으로 죄송합니다.", "처리가 끝났습니다."],
-    "과배송": ["중복 발송을 확인해 구매처에 회수를 요청했습니다.", "회수가 완료되었습니다.", "처리가 끝났습니다."],
-    "_default": ["문의 감사합니다. 확인 후 바로 답변드리겠습니다.", "조치를 완료했습니다.", "처리가 끝났습니다."]
+    "반품접수": ["불편을 드려 죄송합니다. 반품 접수를 도와드리겠습니다. 회수 택배가 방문할 수 있는 연락처를 확인해 주세요.", "※쿠팡 반품 접수 확인", "※구매처 반품 신청 완료 · 반품비 6,000원 장부 기록", "회수 송장이 등록되었습니다. 택배 기사님이 1~2일 내 방문합니다.", "회수가 확인되었습니다. 환불은 영업일 기준 2~3일 내 처리됩니다.", "※구매처 환불 확인 · 정산 반영", "처리가 모두 끝났습니다. 이용해 주셔서 감사합니다."],
+    "차액협의": ["불편을 드려 죄송합니다. 반품 대신 3,000원을 차액으로 보내드리는 방법은 어떠실까요? 괜찮으시면 입금 계좌를 회신해 주세요.", "※고객 수락 · 담당자에게 입금 요청 등록(계좌는 저장하지 않음)", "차액 3,000원 입금이 완료되었습니다. 확인 부탁드립니다.", "처리가 끝났습니다. 감사합니다."],
+    "출고중지요청": ["취소 요청을 확인했습니다. 출고 전이라 바로 처리해 드리겠습니다.", "※구매처 취소 요청 전송", "취소가 확인되어 환불이 진행됩니다.", "처리가 끝났습니다."],
+    "택배미수령": ["미수령 신고를 확인했습니다. 택배사에 배송 위치를 조회 요청했습니다.", "※쿠팡 처리 상태 확인", "※구매처 반품/취소 접수 완료", "환불이 확인되었습니다.", "처리가 끝났습니다."],
+    "품절취소": ["※구매처 품절 확인", "※쿠팡 취소·환불 처리 확인", "주문하신 상품이 공급사 품절로 부득이 취소·환불되었습니다. 진심으로 죄송합니다.", "처리가 끝났습니다."],
+    "과배송": ["※중복 발송 확인 · 구매처에 회수 요청", "회수가 완료되었습니다.", "처리가 끝났습니다."],
+    "_default": ["문의 감사합니다. 확인 후 바로 답변드리겠습니다.", "※조치 완료", "처리가 끝났습니다."]
   };
+  function csLine(o, text) {
+    if (!text) return;
+    if (text.charAt(0) === "※") OH.csAutoMemo(o, "자동 처리: " + text.slice(1), "step");
+    else OH.csAutoMemo(o, "AI 응대 발송: " + text, "note");
+  }
   var DEMO_BLACKLIST = [
     { name:"박*훈", address:"경기도 광주시 ○○로 77", phone:"", memo:"반품 후 재주문 반복(데모)", addedAt:"" },
     { name:"최*라", address:"부산광역시 사상구 ○○길 12", phone:"", memo:"수취 거부 3회(데모)", addedAt:"" },
@@ -163,7 +169,7 @@
     o.vendor = p.vendor; o.sourcingPrice = p.cost; o.purchaseAmount = p.cost * qty; o.sourcingLink = "";
     o.status = "pending"; o.orderedYn = ""; o.courier = ""; o.invoiceNumber = ""; o.note = "";
     // 블랙리스트 일치(합성) — 약 1/220 건
-    if (rnd() < 1 / 220) { var b = pick(DEMO_BLACKLIST); o.recipient = b.name.replace("*", pick(GIVEN)); o.buyerName = o.recipient; o.address = b.address; }
+    if (rnd() < 1 / 220) { var b = pick(DEMO_BLACKLIST); o.recipient = b.name.replace("*", "○"); o.buyerName = o.recipient; o.address = b.address; }
     o._d = { p:p, stage:"collected", at:t.getTime(), stageAt:t.getTime(), next:t.getTime() + ri(8, 40) * 1000, cs:null };
     OH.computeMargin(o);
     st.orders.unshift(o);
@@ -259,8 +265,7 @@
     o.cs.reason = pick(CS_REASON[type] || ["기타"]); o.cs.channel = rnd() < 0.7 ? "판매자센터" : "문자";
     o._d.cs = { idx:0, next:tms + ri(1, 6) * MIN, human:rnd() < 0.06, humanAt:-1, done:false, openedAt:tms };
     D.cs.opened++; D.cs.open++; D.today.cs++; D.bots.cs.count++;
-    var line = (CS_LINES[type] || CS_LINES._default)[0];
-    OH.csAutoMemo(o, "AI 응대 발송: " + line, "note");
+    csLine(o, (CS_LINES[type] || CS_LINES._default)[0]);
     bot("cs", type + " 접수 · AI 1차 응대 발송 (" + o.recipient + ")");
     feed(t, "CS", "warn", type + " · " + o.productName + " " + o.option + " · " + o.recipient + " · AI 1차 응대 발송");
   }
@@ -284,7 +289,7 @@
     if (key === "pickup_tracking") { o.cs.pickup.courier = pick(["CJ대한통운", "롯데택배"]); o.cs.pickup.trackingNo = invoiceNo(o.cs.pickup.courier); }
     OH.csSync(o);
     var lines = CS_LINES[o.csType] || CS_LINES._default;
-    if (lines[c.idx + 1]) OH.csAutoMemo(o, "AI 응대 발송: " + lines[c.idx + 1], "note");
+    csLine(o, lines[c.idx + 1]);
     OH.csAutoMemo(o, "단계 완료(자동): " + st[1], "step");
     c.idx++;
     if (key === "closed") {
@@ -309,7 +314,7 @@
     var order = [["collected", "수집"], ["checked", "검수"], ["ordered", "발주"], ["invoiced", "송장"], ["shipped", "발송"], ["delivered", "배송완료"]];
     var parts = order.filter(function (x) { return D.batch[x[0]]; }).map(function (x) { return x[1] + " " + D.batch[x[0]]; });
     var from = D.batchFrom ? fmtT(new Date(D.batchFrom)).slice(0, 5) : "", to = fmtT(t).slice(0, 5);
-    feed(t, "묶음", "info", (from && from !== to ? from + "~" + to + " " : "") + "사람 손 없이 자동 처리 " + D.batchN + "건 · " + parts.join(" · "));
+    feed(t, "묶음", "info", (from && from !== to ? from + "~" + to + " " : "") + "자동 처리 " + D.batchN + "건 · " + parts.join(" · "));
     D.batch = {}; D.batchN = 0; D.batchFrom = D.now;
   }
   function feed(t, kind, tone, text) {
@@ -356,7 +361,7 @@
   }
   var IDLE_LINES = [
     ["security", "신규 주문 개인정보 마스킹 점검 완료 — 이상 없음"], ["db", "매입처 가격 변동 감시 중"], ["order", "구매처 발주 큐 확인 중"],
-    ["invoice", "택배사 송장 API 응답 정상"], ["cs", "판매자센터 문의함 확인 — 새 문의 없음"], ["security", "블랙리스트·수취거부 패턴 대조 중"]
+    ["invoice", "택배사 송장 조회 정상 — 미등록 건 없음"], ["cs", "판매자센터 문의함 확인 — 새 문의 없음"], ["security", "블랙리스트·수취거부 패턴 대조 중"]
   ];
 
   /* ---------- 하루 마감 ---------- */
@@ -748,6 +753,10 @@
     try { if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {}); else if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {}); } catch (e) {}
   }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && document.body.classList.contains("ap-present")) setPresent(false); });
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("[data-demo-stop]")) { stop(); return; }
+    if (e.target.closest("[data-demo-go]") && D.active) { OH.setTab("autopilot"); }
+  });
   function setText(key, v) { var e = el('[data-k="' + key + '"]'); if (e && e.textContent !== String(v)) e.textContent = v; }
   function renderPane() {
     document.body.classList.add("ap-tab");
@@ -790,7 +799,7 @@
           '<button type="button" class="ap-stage" data-ap-go="' + x[2] + '"><span class="ic">' + x[4] + '</span><span class="n" data-k="st' + i + '">' + OH.comma(x[1]) + '</span><span class="l">' + x[0] + '</span><span class="sl">' + x[3] + '</span></button>';
       }).join("") + '</div>' +
       '<div class="ap-lead"><span>평균 소요</span>' + ["checked", "ordered", "invoiced", "shipped", "delivered"].map(function (kk, i) { return '<em data-k="lead' + i + '">—</em>'; }).join("") + '</div>' +
-      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="note">단계 건수는 처리 중인 전일 주문 포함</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건</span><span class="sp"></span><span>흐름 중 <b data-k="pfFlow">0</b>건</span></div>';
+      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="note">단계 건수는 처리 중인 전일 주문 포함</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건</span><span class="sp"></span><span>처리 중 <b data-k="pfFlow">0</b>건</span></div>';
     }
     steps.forEach(function (x, i) { setText("st" + i, OH.comma(x[1])); });
     ["checked", "ordered", "invoiced", "shipped", "delivered"].forEach(function (kk, i) { setText("lead" + i, fmtDur(leadAvg(kk))); });
