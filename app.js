@@ -768,7 +768,9 @@
       return false;
     }
   }
+  function demoOn() { return !!(window.Demo && window.Demo.active); }
   function persist() {
+    if (demoOn()) return;   // 데모 중에는 실제 데이터(스냅샷)를 덮어쓰지 않음
     normalizeOps();
     // 주문 목록 통째로 저장(새로고침 유지)
     safeSetItem(LS.orders, JSON.stringify(state.orders));
@@ -801,8 +803,9 @@
   function loadBlacklist() {
     try { var b = JSON.parse(localStorage.getItem(LS.blacklist)); state.blacklist = Array.isArray(b) ? b : []; } catch (e) { state.blacklist = []; }
   }
-  function saveUiOnly() { safeSetItem(LS.ui, JSON.stringify(state.ui)); }
+  function saveUiOnly() { if (demoOn()) return; safeSetItem(LS.ui, JSON.stringify(state.ui)); }
   function saveSourcingMap() {
+    if (demoOn()) return;
     try { localStorage.setItem(LS.sourcingMap, JSON.stringify(state.sourcingMap || {})); } catch (e) {}
   }
   function saveDeleted() {
@@ -927,6 +930,7 @@
       else if (o.status === "invoiced") invoiced++;
       if (o.margin != null) { marginSum += o.margin; hasMargin = true; }
     });
+    if (demoOn()) { var ov = window.Demo.overview(); total = ov.total; pending = ov.pending; purchased = ov.purchased; invoiced = ov.invoiced; marginSum = ov.margin; hasMargin = true; }
     var s = $("#summary");
     s.innerHTML =
       stat("총 주문", total + "건", "", "orders:all") +
@@ -954,6 +958,7 @@
   }
   // 기간별 집계(주문일 기준): 오늘 · 어제 · 이번 달 · 지난 달 · 전체
   function periodStats() {
+    if (demoOn()) return window.Demo.periodRows();
     var now = new Date();
     var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
     var thisM = monthKey(now), lastM = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
@@ -1092,16 +1097,17 @@
     { key:"profit",    label:"수익분석" }
   ];
   var TAB_PANE = {
-    process:"process", dashboard:"dashboard", orders:"orders", cs:"cs", blacklist:"blacklist", lineup:"lineup", sourcing:"sourcing",
+    autopilot:"autopilot", process:"process", dashboard:"dashboard", orders:"orders", cs:"cs", blacklist:"blacklist", lineup:"lineup", sourcing:"sourcing",
     calc:"calc", daily:"daily", invoice:"invoice", loss:"loss", journal:"journal", accounts:"accounts", cards:"cards", profit:"profit"
   };
 
   function renderTabs() {
     var nav = $("#tabnav"); if (!nav) return;
     var active = state.ui.tab || "dashboard";
-    nav.innerHTML = TABS.map(function (t) {
+    var tabs = demoOn() ? [{ key:"autopilot", label:"자동화 관제", live:true }].concat(TABS) : TABS;
+    nav.innerHTML = tabs.map(function (t) {
       var n = t.key === "blacklist" ? riskOrders().length : (t.key === "cs" ? csOrders().length : 0);
-      return '<button class="tab' + (t.key === active ? " on" : "") + (t.soon ? " soon" : "") +
+      return '<button class="tab' + (t.key === active ? " on" : "") + (t.soon ? " soon" : "") + (t.live ? " live" : "") +
         '" data-tab="' + t.key + '">' + esc(t.label) + (n ? '<span class="tab-count' + (t.key === "blacklist" ? " bad" : "") + '">' + n + '</span>' : "") + '</button>';
     }).join("");
   }
@@ -1116,11 +1122,13 @@
     var tab = state.ui.tab || "dashboard";
     if (!TAB_PANE[tab]) { tab = "dashboard"; state.ui.tab = tab; }
     var pane = TAB_PANE[tab];
-    ["process", "dashboard", "orders", "cs", "blacklist", "lineup", "sourcing", "calc", "daily", "invoice", "loss", "journal", "accounts", "cards", "profit"].forEach(function (p) {
+    if (tab === "autopilot" && !demoOn()) { tab = "dashboard"; state.ui.tab = tab; pane = TAB_PANE[tab]; }
+    ["autopilot", "process", "dashboard", "orders", "cs", "blacklist", "lineup", "sourcing", "calc", "daily", "invoice", "loss", "journal", "accounts", "cards", "profit"].forEach(function (p) {
       var el = $("#pane-" + p); if (el) el.classList.toggle("hidden", p !== pane);
     });
     renderSummary();   // #summary(대시보드 패널) 갱신 — 다른 탭이면 숨겨져 있어도 무해
-    if (tab === "process") renderProcessPane();
+    if (tab === "autopilot") { if (window.Demo) window.Demo.renderPane(); }
+    else if (tab === "process") renderProcessPane();
     else if (tab === "dashboard") renderOverview();
     else if (tab === "orders") renderOrdersPane();
     else if (tab === "cs") renderCsPane();
@@ -1353,7 +1361,7 @@
   }
   function renderOrdersDashboard() {
     var el = $("#orders-dashboard"); if (!el) return;
-    var today = new Date();
+    var today = nowDate();
     var s = { rev:0, margin:0, hasMargin:false, remaining:0, completed:0, cs:0 };
     state.orders.forEach(function (o) {
       var d = parseOrderDate(o.orderDate);
@@ -1365,6 +1373,7 @@
       else s.completed++;
       if (o.csType) s.cs++;
     });
+    if (demoOn()) { var dov = window.Demo.overview(); s.rev = dov.rev; s.margin = dov.margin; s.hasMargin = true; s.remaining = dov.remaining; s.completed = dov.completed; s.cs = dov.cs; }
     var rate = s.rev && s.hasMargin ? Math.round(s.margin / s.rev * 1000) / 10 : null;
     var riskN = riskOrders().length;
     var banner = riskN
@@ -1533,6 +1542,7 @@
     });
     s.rate = s.rev ? Math.round(s.margin / s.rev * 1000) / 10 : 0;
     s.prodCount = Object.keys(s.products).length;
+    if (demoOn()) Object.assign(s, window.Demo.overview(s));
     return s;
   }
   function parseOrderDate(v) {
@@ -1554,6 +1564,7 @@
     return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2);
   }
   function monthlyStats() {
+    if (demoOn()) return window.Demo.monthlyRows();
     var by = {};
     state.orders.forEach(function (o) {
       var k = monthKey(o.orderDate);
@@ -2187,6 +2198,7 @@
     if (del) { var tr = del.closest("[data-calc-idx]"); state.ops.calcRows.splice(parseInt(tr.getAttribute("data-calc-idx"), 10), 1); persist(); renderMarginCalc(); }
   }
   function dailySalesRows() {
+    if (demoOn()) return window.Demo.dailyRows();
     var by = {};
     state.orders.forEach(function (o) {
       var d = parseOrderDate(o.orderDate);
@@ -3240,8 +3252,9 @@
     o.memoLog.splice(idx, 1);
     persist(); renderMemoModal(); render();
   }
+  function nowDate() { return demoOn() ? new Date(window.Demo.now()) : new Date(); }
   function dateStampHuman() {
-    var d = new Date();
+    var d = nowDate();
     function p(n){ return ("0" + n).slice(-2); }
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
   }
@@ -3603,7 +3616,7 @@
 
   /* ---- 소스 양식(36열) 내보내기: 올린 파일과 같은 열 순서로, 앱에서 채운 값만 덮어써서 나갑니다 ---- */
   function todayKey() {
-    var d = new Date(); function p(n){ return ("0" + n).slice(-2); }
+    var d = nowDate(); function p(n){ return ("0" + n).slice(-2); }
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
   }
   function firstFilled() {
@@ -4552,7 +4565,11 @@
 
     // 상단 버튼
     $("#btn-settings").addEventListener("click", openSettings);
-    $("#btn-reset").addEventListener("click", function () { reset(false); });
+    $("#btn-reset").addEventListener("click", function () {
+      if (demoOn()) { window.Demo.stop(); return; }   // 데모 중 '처음으로' = 데모 종료(실제 데이터 복원)
+      reset(false);
+    });
+    var bd = $("#btn-demo"); if (bd) bd.addEventListener("click", function () { if (window.Demo) window.Demo.toggle(); else toast("demo.js 가 로드되지 않았어요"); });
     $("#btn-export").addEventListener("click", function () { $("#modal-export").classList.remove("hidden"); });
     var qi = $("#btn-quick-invoice"); if (qi) qi.addEventListener("click", function () {
       var meta = state.ui.sourceMeta || {};
@@ -4646,5 +4663,13 @@
     if (!restoreSession()) show("upload");
   }
 
+  /* ---------- 내부 API(데모 엔진 demo.js 전용) — 외부 전송 없음 ---------- */
+  window.OH = {
+    get state() { return state; },
+    render: render, renderTabs: renderTabs, renderSheet: renderSheet, setTab: setTab, show: show, showDashboard: showDashboard,
+    blankOrder: blankOrder, computeMargin: computeMargin, normalizeOrder: normalizeOrder, defaultOps: defaultOps, newId: newId,
+    csOpen: csOpen, csSync: csSync, csAutoMemo: csAutoMemo, csStepsFor: csStepsFor, CS_STEPS: CS_STEPS, CS_LEDGER_KINDS: CS_LEDGER_KINDS,
+    toast: toast, won: won, comma: comma, esc: esc, fmtPct: fmtPct, todayKey: todayKey, dateStampHuman: dateStampHuman, riskOrders: riskOrders
+  };
   document.addEventListener("DOMContentLoaded", init);
 })();
