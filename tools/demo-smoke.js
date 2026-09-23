@@ -7,7 +7,7 @@ const path = require("path"), fs = require("fs"), http = require("http");
 const { chromium } = require("playwright");
 const ROOT = path.join(__dirname, "..");
 const SECS = parseInt(process.argv[2] || "25", 10), SPEED = parseInt(process.argv[3] || "600", 10);
-const PORT = 8791;
+const PORT = parseInt(process.env.PORT || "8791", 10);
 const MIME = { ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css", ".xlsx":"application/octet-stream", ".xls":"application/octet-stream", ".csv":"text/csv", ".png":"image/png" };
 (async () => {
   const server = http.createServer((req, res) => {

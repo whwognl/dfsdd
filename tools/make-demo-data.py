@@ -46,7 +46,9 @@ for r in it:
     name = r[ix["상품명"]]; opt = r[ix["옵션"]]
     if not name: continue
     n_rows += 1
-    key = (clean_name(name), re.sub(r"\s+", " ", str(opt or "")).strip()[:24])
+    nm = clean_name(name); op = re.sub(r"\s+", " ", str(opt or "")).strip()[:24]
+    if op and op in nm: nm = nm.replace(op, " ").strip(" -·/")          # 상품명에 옵션이 또 들어 있으면 제거
+    key = (nm, op)
     p = prod[key]; p["n"] += 1
     sp = num(r[ix["(실)판매가"]]) or num(r[ix["판매가"]]); cp = num(r[ix["매입가"]]); mg = num(r[ix["순마진"]])
     if str(r[ix["거래처"]] or "").strip() == "리뷰" or (sp and cp and cp > sp): p["n"] -= 1; continue

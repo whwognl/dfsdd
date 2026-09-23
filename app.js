@@ -999,6 +999,7 @@
       }
     });
     var risk = riskOrders().length;
+    if (demoOn()) { var dov = window.Demo.overview(); pending = dov.pending; noInvoice = dov.purchased; noCost = 0; }
     return [
       { label:"블랙리스트 위험 — 발송 전 확인", n:risk, go:"risk", cls:"danger" },
       { label:"미처리 주문 — 구매처에서 결제", n:pending, go:"orders:pending", cls:"brand" },
@@ -1042,9 +1043,9 @@
   function renderProcessStrip() {
     var el = $("#process-strip"); if (!el) return;
     var s = overviewStats();
-    var dbReady = state.orders.filter(function (o) { return o.sourcingLink || o.sourcingPrice != null; }).length;
+    var dbReady = demoOn() ? s.total : state.orders.filter(function (o) { return o.sourcingLink || o.sourcingPrice != null; }).length;
     var dbNeed = Math.max(0, s.total - dbReady);
-    var invoiced = state.orders.filter(function (o) { return o.invoiceNumber && o.courier; }).length;
+    var invoiced = demoOn() ? s.invoiced : state.orders.filter(function (o) { return o.invoiceNumber && o.courier; }).length;
     var handled = s.purchased + s.invoiced;
     var next = "발주서를 올리면 주문관리 시트가 열립니다.";
     if (s.total && dbNeed) next = "DB에서 매입가와 주문링크를 채우면 순마진이 바로 계산됩니다.";
@@ -2212,6 +2213,7 @@
   function renderDailySales() {
     var pane = $("#pane-daily"); if (!pane) return;
     var rows = dailySalesRows();
+    if (demoOn()) rows = rows.slice().reverse();   // 데모에서는 최신순(오늘이 맨 위)
     var body = rows.map(function (g) {
       var rate = g.rev && g.hasM ? g.margin / g.rev * 100 : null;
       return '<tr><td>' + esc(g.date) + '</td><td class="num">' + g.cnt + '</td><td class="num">' + won(g.rev) + '</td><td class="num ' + (g.hasM ? (g.margin >= 0 ? "pos" : "neg") : "") + '">' + (g.hasM ? won(g.margin) : "—") + '</td><td class="num">' + fmtPct(rate) + '</td></tr>';

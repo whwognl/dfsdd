@@ -119,7 +119,7 @@
       raw.push({ d:d, base:level(d, todayD) * NOISE[(i * 7) % NOISE.length] });
     }
     var last28 = raw.slice(-28).reduce(function (s, r) { return s + r.base; }, 0);
-    var scale = DAY_TARGET * 28 / last28;                        // 최근 4주(요일 균형) 평균 = 80억/365 → 페이스 정확히 80억
+    var scale = DAY_TARGET * 28 / last28 * 1.012;                // 최근 4주(요일 균형) 평균 ≈ 80억/365 (약 81억 페이스 · 살짝 초과 달성)
     D.days = {};
     raw.forEach(function (r) {
       k = dayKeyOf(r.d);
@@ -184,6 +184,7 @@
     }
     return o;
   }
+  function short(v, n) { v = String(v || ""); return v.length > n ? v.slice(0, n - 1) + "…" : v; }
   function regionOf(o) { return String(o.address || "").split(" ").slice(0, 2).join(" "); }
   function sample(p) { return rnd() < p * Math.min(1, 60 / D.speed); }
 
@@ -210,8 +211,8 @@
     } else if (m.stage === "ordered") {
       m.stage = "invoiced"; o.status = "invoiced"; o.courier = o._d.p.courier; o.invoiceNumber = invoiceNo(o.courier);
       OH.computeMargin(o); D.stages.invoiced++; bump("invoiced"); D.bots.invoice.count++;
-      bot("invoice", o.courier + " 송장 등록: " + o.invoiceNumber);
-      if (sample(0.35)) feed(t, "송장", "ok", o.courier + " " + o.invoiceNumber + " · " + o.productName + " " + o.option + " · " + o.recipient);
+      bot("invoice", o.courier + " 송장 등록 · " + short(o.productName, 12));
+      if (sample(m.batched ? 0.06 : 0.35)) feed(t, "송장", "ok", o.courier + " " + o.invoiceNumber + " · " + o.productName + " " + o.option + " · " + o.recipient);
       m.next = tms + ri(30, 90) * MIN;
     } else if (m.stage === "invoiced") {
       m.stage = "shipped"; D.stages.shipped++; bump("shipped");
@@ -314,13 +315,13 @@
       var old = p.cost; p.cost = Math.max(1000, p.cost + delta);
       D.db.sourcing.changes++; D.db.sourcing.at = t.getTime();
       var map = OH.state.sourcingMap; map[p.id] = Object.assign(map[p.id] || {}, { price:p.cost, link:"", category:"" });
-      bot("db", p.vendor + " · " + p.name + " " + p.opt + " 매입가 " + OH.comma(old) + " → " + OH.comma(p.cost));
-      feed(t, "DB", "info", "매입처DB 자동 갱신 — " + p.vendor + " " + p.name + " " + p.opt + " 매입가 " + OH.comma(old) + " → " + OH.comma(p.cost) + " (" + (delta > 0 ? "+" : "") + delta + ")");
+      bot("db", p.vendor + " · " + short(p.name, 10) + " 매입가 " + OH.comma(old) + " → " + OH.comma(p.cost));
+      feed(t, "DB", "info", "매입처DB 자동 갱신 — " + p.vendor + " " + short(p.name, 14) + " " + short(p.opt, 10) + " 매입가 " + OH.comma(old) + " → " + OH.comma(p.cost) + " (" + (delta > 0 ? "+" : "") + delta + ")");
     } },
     { key:"lineup", label:"라인업 판매량 반영", every:[18, 40], run:function (t) {
       var p = pick(PRODUCTS); D.db.lineup.changes++; D.db.lineup.at = t.getTime();
-      bot("db", "라인업 갱신: " + p.name + " " + p.opt + " 판매량·마진 반영");
-      feed(t, "DB", "info", "라인업 자동 갱신 — " + p.name + " " + p.opt + " 오늘 " + ri(20, 140) + "건 · 순위 " + (rnd() < 0.5 ? "↑" : "유지"));
+      bot("db", "라인업 갱신: " + short(p.name, 12) + " 판매량·마진 반영");
+      feed(t, "DB", "info", "라인업 자동 갱신 — " + short(p.name, 14) + " " + short(p.opt, 10) + " 오늘 " + ri(20, 140) + "건 · 순위 " + (rnd() < 0.5 ? "↑" : "유지"));
     } },
     { key:"fees", label:"수수료표 동기화", every:[45, 90], run:function (t) {
       D.db.fees.at = t.getTime(); D.db.fees.changes += 0;
@@ -334,8 +335,11 @@
       D.db.backup.changes++; D.db.backup.at = t.getTime();
       feed(t, "백업", "info", "로컬 백업 스냅샷 #" + D.db.backup.changes + " 저장 (" + (1240 + ri(0, 400)) + " KB · 이 PC 안에만)");
     } },
+    { key:"csInbound", label:"CS 유입", every:[10, 30], run:function (t) {
+      var host = pickLiveOrderForCs(); if (host) openCs(host, t.getTime());
+    } },
     { key:"invoiceBatch", label:"송장 일괄 등록", every:[25, 55], run:function (t) {
-      var n = 0; OH.state.orders.forEach(function (o) { if (o._d && o._d.stage === "ordered" && o._d.next > D.now && o._d.next - D.now < 4 * HOUR && n < 40) { o._d.next = D.now + ri(5, 90) * 1000; n++; } });
+      var n = 0; OH.state.orders.forEach(function (o) { if (o._d && o._d.stage === "ordered" && o._d.next > D.now && o._d.next - D.now < 4 * HOUR && n < 40) { o._d.next = D.now + ri(5, 90) * 1000; o._d.batched = true; n++; } });
       if (n) { bot("invoice", "택배사 송장 " + n + "건 일괄 등록"); feed(t, "송장", "ok", "택배사 송장 " + n + "건 일괄 등록 · 발송 처리 예약"); }
     } }
   ];
@@ -400,12 +404,11 @@
       var back = Math.round(Math.pow(rnd(), 1.6) * Math.min(elapsedMs, 7 * HOUR));
       made.push(makeOrder(new Date(tms - back)));
     }
-    D.feed.length = 0;
+    made.sort(function (a, b) { return a._d.at - b._d.at; });
     made.forEach(function (o) {
       var guard = 0;
       while (o._d.next && o._d.next <= tms && guard++ < 6) { var before = o._d.stage; advanceOrder(o, o._d.next); if (o._d.stage === before) break; }
     });
-    D.feed.length = 0;
     // 진행 중 CS 8건 시드(어제·오늘 배송된 주문)
     var pool = OH.state.orders.slice(); var seeded = 0;
     for (i = 0; i < pool.length && seeded < 8; i++) {
@@ -420,7 +423,12 @@
     D.bots.order.count = D.stages.ordered; D.bots.invoice.count = D.stages.invoiced; D.bots.cs.count = D.today.cs; D.bots.security.count = D.stages.checked; D.bots.db.count = ri(30, 60);
     D.cs.opened = D.today.cs; D.cs.open = seeded; D.cs.closed = Math.max(0, Math.round((D.today.cs - seeded) * 0.9));
     D.cs.human = Math.round(D.cs.closed * 0.06); D.cs.auto = D.cs.closed - D.cs.human; D.human = Math.max(0, D.human);
-    D.feed.length = 0;
+    // 어제 주문의 남은 배송완료를 오늘 안에 예약(마지막 단계도 계속 움직이게)
+    var yCnt = D.days[yk] ? D.days[yk].cnt : 0, left = Math.max(0, yCnt - D.stages.delivered);
+    for (i = 0; i < left; i++) D.deferred.push({ at:tms + rnd() * Math.max(HOUR, (DAY - elapsedMs) * 0.8), kind:"delivered" });
+    // 시작 화면이 비지 않게: 지금까지 만든 이벤트를 시각순으로 40개만 남김
+    D.feed.sort(function (a, b) { return a.t < b.t ? 1 : a.t > b.t ? -1 : b.id - a.id; });
+    if (D.feed.length > 40) D.feed.length = 40;
     D.batch = {}; D.batchN = 0; D.batchFrom = tms;
     feed(t, "시작", "ok", "자동화 관제 시작 — 오늘 " + OH.comma(D.today.cnt) + "건 · " + OH.won(D.today.rev) + " 처리 중 · 연매출 80억 페이스");
   }
@@ -497,7 +505,7 @@
     st.ui = Object.assign({}, st.ui, { tab:"autopilot", q:"", status:"all", sort:"dateDesc", group:"none", showCs:false, csShowDone:false });
     seed = 20260923 + (opts.seed || 0);
     D.speed = opts.speed || D.speed || 60; D.paused = false; D.tick = 0; D.feed = []; D.feedSeq = 0; D.human = 0; D.seq = 0; D.tween = {};
-    D.bots = { order:{ name:"주문봇", role:"수집·검수·발주", task:"대기", count:0 }, invoice:{ name:"송장봇", role:"송장 등록·발송", task:"대기", count:0 }, cs:{ name:"CS봇", role:"응대·접수·회수", task:"대기", count:0 }, db:{ name:"DB봇", role:"가격·라인업·마감·백업", task:"대기", count:0 }, security:{ name:"보안봇", role:"블랙리스트·마스킹", task:"대기", count:0 } };
+    D.bots = { order:{ name:"주문봇", role:"수집·검수·발주", task:"대기", count:0 }, invoice:{ name:"송장봇", role:"송장 등록·발송", task:"대기", count:0 }, cs:{ name:"CS봇", role:"응대·접수·회수", task:"대기", count:0 }, db:{ name:"DB봇", role:"가격·라인업·백업", task:"대기", count:0 }, security:{ name:"보안봇", role:"블랙리스트·마스킹", task:"대기", count:0 } };
     D.db = { sourcing:{ label:"매입처DB", rows:PRODUCTS.length, changes:0, at:0 }, lineup:{ label:"라인업", rows:PRODUCTS.length, changes:0, at:0 }, blacklist:{ label:"블랙리스트", rows:DEMO_BLACKLIST.length + 116, changes:0, at:0 }, fees:{ label:"수수료표", rows:13, changes:0, at:0 }, daily:{ label:"일별매출", rows:0, changes:0, at:0 }, backup:{ label:"로컬 백업", rows:0, changes:0, at:0 } };
     D.cs = { opened:0, closed:0, auto:0, human:0, open:0 }; D.deferred = []; D.batch = {}; D.batchN = 0; D.batchFrom = 0;
     D.now = Date.now(); D.dayKey = ""; D.today = null;
@@ -550,8 +558,10 @@
   }
   function simulate(dtMs) {
     var from = D.now; D.now += dtMs; rollDay(D.now);
-    var lam = ratePerMs(new Date(from)) * dtMs, n = Math.min(80, poisson(lam)), i;
-    for (i = 0; i < n; i++) makeOrder(new Date(from + rnd() * dtMs));
+    var lam = ratePerMs(new Date(from)) * dtMs, n = Math.min(80, poisson(lam)), i, ts = [];
+    for (i = 0; i < n; i++) ts.push(from + rnd() * dtMs);
+    ts.sort(function (a, b) { return a - b; });
+    for (i = 0; i < n; i++) makeOrder(new Date(ts[i]));
     var orders = OH.state.orders;
     for (i = 0; i < orders.length; i++) if (orders[i]._d) advanceOrder(orders[i], D.now);
     runJobs(D.now); runDeferred(D.now);
@@ -623,7 +633,7 @@
         '</div>' +
         '<div class="ap-kpis">' +
           kpi("today", "오늘 매출", "hero", "어제 같은 시각 대비 <b data-k=\"vsY\">—</b> · 시간당 <b data-k=\"perHour\">0</b>건 · 오늘 <b data-k=\"todayCnt\">0</b>건<div class=\"bar\"><span data-k=\"todayBar\"></span></div><div class=\"bar-l\">오늘 예상 <b data-k=\"todayExp\">—</b> · <b data-k=\"todayPct\">0</b>% 진행</div>") +
-          kpi("pace", "연매출 페이스", "ring", "목표 80억 대비 <b data-k=\"paceRatio\">100</b>%") +
+          kpi("pace", "연매출 페이스", "ring", "목표 80억 대비 <b data-k=\"paceRatio\">100</b>% · 올해 <b data-k=\"ytdPct\">0</b>% 달성") +
           kpi("month", "이번 달 매출", "", "지난 달 <b data-k=\"lastMonth\">—</b>") +
           kpi("ytd", "올해 누적", "", "<b data-k=\"ytdCnt\">0</b>건") +
           kpi("margin", "오늘 순마진", "", "마진율 <b data-k=\"rate\">0</b>% · CS 차감 <b data-k=\"csCost\">0</b>") +
@@ -640,7 +650,7 @@
         '</div>' +
         '<div class="ap-charts">' +
           '<section class="ap-card"><header><h3>최근 30일 매출</h3><span data-k="c30"></span></header><div class="ap-chart" data-k="chart30"></div></section>' +
-          '<section class="ap-card"><header><h3>오늘 시간대별</h3><span>어제 대비</span></header><div class="ap-chart" data-k="chartH"></div></section>' +
+          '<section class="ap-card"><header><h3>오늘 시간대별</h3><span data-k="cH">어제 대비</span></header><div class="ap-chart" data-k="chartH"></div></section>' +
           '<section class="ap-card"><header><h3>12개월 매출</h3><span data-k="c12"></span></header><div class="ap-chart" data-k="chart12"></div></section>' +
         '</div>' +
       '</div>';
@@ -655,7 +665,12 @@
     var sp = e.target.closest("[data-speed]");
     if (sp) { setSpeed(parseInt(sp.getAttribute("data-speed"), 10)); Array.prototype.forEach.call($pane.querySelectorAll("[data-speed]"), function (b) { b.classList.toggle("on", b === sp); }); return; }
     if (e.target.closest("[data-present]")) { setPresent(!document.body.classList.contains("ap-present")); return; }
-    if (e.target.closest("[data-pause]")) { D.paused = !D.paused; e.target.closest("[data-pause]").textContent = D.paused ? "재개" : "일시정지"; $pane.classList.toggle("paused", D.paused); return; }
+    if (e.target.closest("[data-pause]")) {
+      D.paused = !D.paused; e.target.closest("[data-pause]").textContent = D.paused ? "재개" : "일시정지";
+      var apEl = el(".ap"); if (apEl) apEl.classList.toggle("paused", D.paused);
+      var lv = el(".ap-live"); if (lv) lv.lastChild.textContent = D.paused ? "PAUSED" : "LIVE";
+      return;
+    }
     var go = e.target.closest("[data-ap-go]"); if (go) { OH.setTab(go.getAttribute("data-ap-go")); }
   }
   // 숫자 카운트업
@@ -676,9 +691,19 @@
     });
     D.raf = live ? requestAnimationFrame(tweenFrame) : null;
   }
+  function fitPresent() {
+    var ap = el(".ap"); if (!ap) return;
+    ap.style.zoom = "";
+    if (!document.body.classList.contains("ap-present")) return;
+    var sc = Math.min(1, (window.innerHeight - 4) / ap.scrollHeight, window.innerWidth / ap.scrollWidth);
+    if (sc < 0.999) ap.style.zoom = sc.toFixed(3);
+  }
+  window.addEventListener("resize", function () { if (document.body.classList.contains("ap-present")) setTimeout(fitPresent, 50); });
+  document.addEventListener("fullscreenchange", function () { if (!document.fullscreenElement && document.body.classList.contains("ap-present")) setPresent(false); });
   function setPresent(on) {
     document.body.classList.toggle("ap-present", on);
     var b = el("[data-present]"); if (b) b.textContent = on ? "발표 모드 해제" : "발표 모드";
+    setTimeout(fitPresent, 30); setTimeout(fitPresent, 400);
     try { if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {}); else if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {}); } catch (e) {}
   }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && document.body.classList.contains("ap-present")) setPresent(false); });
@@ -699,9 +724,10 @@
     setText("vsY", (k.vsY >= 0 ? "+" : "") + k.vsY.toFixed(1) + "%"); var vy = el('[data-k="vsY"]'); if (vy) vy.classList.toggle("neg", k.vsY < 0);
     setText("todayExp", wonShort(k.expDay)); setText("todayPct", k.todayPct); var tb = el('[data-k="todayBar"]'); if (tb) tb.style.width = k.todayPct + "%";
     setText("paceRatio", (k.paceRatio * 100).toFixed(1)); setText("lastMonth", wonShort(k.lastMonth.rev)); setText("ytdCnt", OH.comma(k.ytd.cnt));
-    setText("rate", k.today.rev ? (k.today.margin / k.today.rev * 100).toFixed(1) : "0"); setText("csCost", OH.won(-k.today.csCost));
+    setText("rate", k.today.rev ? (k.today.margin / k.today.rev * 100).toFixed(1) : "0"); setText("csCost", k.today.csCost ? "−" + OH.won(k.today.csCost) : "₩0");
     setText("human", k.human); var hEl = el('[data-k="human"]'); if (hEl) hEl.classList.toggle("hot", k.human > 0);
-    var arc = el('[data-k="ringArc"]'); if (arc) arc.setAttribute("stroke-dasharray", Math.min(100, k.paceRatio * 100).toFixed(1) + " 100");
+    var arc = el('[data-k="ringArc"]'); if (arc) arc.setAttribute("stroke-dasharray", Math.min(100, k.ytd.rev / YEAR_TARGET * 100).toFixed(1) + " 100");
+    setText("ytdPct", (k.ytd.rev / YEAR_TARGET * 100).toFixed(1)); setText("cH", "어제 같은 시각 대비 " + (k.vsY >= 0 ? "+" : "") + k.vsY.toFixed(1) + "%");
     renderPipe(k); renderFeed(); renderCs(); renderBots(); renderDb();
     if (D.tick % 3 === 0 || !el('[data-k="chart30"] svg')) renderCharts(k);
   }
@@ -716,17 +742,18 @@
   function renderPipe(k) {
     var s = k.stages, box = el('[data-k="pipe"]'); if (!box) return;
     var steps = [["수집", s.collected, "orders:all", "쿠팡 수집 · 5분 주기", ICON.inbox], ["검수", s.checked, "blacklist", "블랙리스트 · 마스킹", ICON.shield], ["발주", s.ordered, "orders:purchased", "구매처 " + k.vendors + "곳 자동", ICON.cart],
-      ["송장", s.invoiced, "invoice", "자동 등록", ICON.tag], ["발송", s.shipped, "invoice", "CJ · 롯데 · 한진", ICON.truck], ["배송완료", s.delivered, "daily", "자동 확인", ICON.check]];
+      ["송장", s.invoiced, "invoice", "자동 등록", ICON.tag], ["발송", s.shipped, "invoice", "CJ · 롯데 · 한진", ICON.truck], ["배송완료", s.delivered, "daily", "어제 주문 · 자동 확인", ICON.check]];
     if (!box.firstChild) {
       box.innerHTML = '<div class="ap-pipe-row">' + steps.map(function (x, i) {
         return (i ? '<div class="ap-flow"><i></i><i></i><i></i></div>' : "") +
           '<button type="button" class="ap-stage" data-ap-go="' + x[2] + '"><span class="ic">' + x[4] + '</span><span class="n" data-k="st' + i + '">' + OH.comma(x[1]) + '</span><span class="l">' + x[0] + '</span><span class="sl">' + x[3] + '</span></button>';
       }).join("") + '</div>' +
-      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="note">송장·발송·배송완료는 전일 주문 포함</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건 · 담당자 확인</span><span class="sp"></span><span>흐름 중 <b data-k="pfFlow">0</b>건</span></div>';
+      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="note">송장·발송·배송완료는 전일 주문 포함</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건</span><span class="sp"></span><span>흐름 중 <b data-k="pfFlow">0</b>건</span></div>';
     }
     steps.forEach(function (x, i) { setText("st" + i, OH.comma(x[1])); });
     setText("pfInv", OH.comma(s.invoiced)); setText("pfFlow", OH.comma(Math.max(0, s.collected - s.shipped)));
-    var hb = el('[data-k="pfHeld"]'); if (hb) { hb.classList.toggle("on", !!s.held); hb.querySelector("b").textContent = s.held; }
+    var hb = el('[data-k="pfHeld"]');
+    if (hb) { var open = k.human; hb.classList.toggle("on", open > 0); hb.innerHTML = '<i></i>블랙리스트 일치 → 자동 보류 <b>' + s.held + '</b>건' + (open ? ' · 담당자 확인 대기 <b>' + open + '</b>건' : (s.held ? ' · 확인 완료' : '')); }
   }
   function renderFeed() {
     var ol = el('[data-k="feed"]'); if (!ol) return;
@@ -772,8 +799,10 @@
       var d = D.db[k]; changes += d.changes;
       var ago = d.at ? Math.max(0, Math.round((D.now - d.at) / MIN)) : null;
       var agoTxt = ago == null ? "" : ago < 1 ? "방금" : ago < 60 ? ago + "분 전" : Math.round(ago / 60) + "시간 전";
-      var spin = d.at && D.now - d.at < 2 * MIN;
-      return '<div class="ap-dbi' + (spin ? " spin" : "") + '"><i></i><b>' + esc(d.label) + '</b><span>' + (d.rows ? OH.comma(d.rows) + "건" : "") + '</span><em>' + (d.changes ? "오늘 갱신 " + d.changes : "변경 없음") + '</em><time>' + agoTxt + '</time></div>';
+      var spin = k === "daily" || (d.at && D.now - d.at < 2 * MIN);
+      var stTxt = k === "daily" ? "오늘분 집계 중" : k === "backup" ? (d.changes ? "스냅샷 " + d.changes + "개" : "대기") : (d.changes ? "오늘 갱신 " + d.changes : "변경 없음");
+      if (k === "daily") agoTxt = "실시간";
+      return '<div class="ap-dbi' + (spin ? " spin" : "") + '"><i></i><b>' + esc(d.label) + '</b><span>' + (d.rows ? OH.comma(d.rows) + "건" : "") + '</span><em>' + stTxt + '</em><time>' + agoTxt + '</time></div>';
     }).join("");
     setText("dbSum", "오늘 자동 갱신 " + changes + "건");
   }
@@ -785,7 +814,7 @@
         var h = Math.max(2, r.rev / max * (H - 6)); var today = i === last30.length - 1;
         return '<rect x="' + (i * (bw + gap)).toFixed(1) + '" y="' + (H - h).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2" class="' + (today ? "today" : "") + '"/>';
       }).join("") + '</svg>';
-      b30.innerHTML += '<div class="ap-xl"><span>' + last30[0].date.slice(5).replace("-", "/") + '</span><span>' + last30[10].date.slice(5).replace("-", "/") + '</span><span>' + last30[20].date.slice(5).replace("-", "/") + '</span><span class="hl">오늘</span></div>';
+      b30.innerHTML += '<div class="ap-xl">' + [0, 10, 20].map(function (i) { return '<span style="left:' + (i / 29 * 100).toFixed(1) + '%">' + last30[i].date.slice(5).replace("-", "/") + '</span>'; }).join("") + '<span class="hl" style="left:100%">오늘</span></div>';
       setText("c30", "일평균 " + wonShort(last30.reduce(function (s, r) { return s + r.rev; }, 0) / last30.length) + " · 최고 " + wonShort(max));
     }
     var bh = el('[data-k="chartH"]'); if (bh) {
@@ -798,13 +827,13 @@
       var hmax = Math.max(cum[23], cy[23], proj[23]) || 1;
       function path(arr, from, upto) { var s = ""; for (var q = from; q <= upto; q++) s += (q === from ? "M" : "L") + (q / 23 * W).toFixed(1) + "," + (H - 4 - arr[q] / hmax * (H - 10)).toFixed(1); return s; }
       bh.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><path class="y" d="' + path(cy, 0, 23) + '"/><path class="p" d="' + path(proj, h, 23) + '"/><path class="t" d="' + path(cum, 0, h) + '"/><circle class="dot" cx="' + (h / 23 * W).toFixed(1) + '" cy="' + (H - 4 - cum[h] / hmax * (H - 10)).toFixed(1) + '" r="4"/></svg>' +
-        '<div class="ap-xl"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>24시</span></div><div class="ap-lg"><i class="t"></i>오늘 누적 <i class="p"></i>예상 <i class="y"></i>어제</div>';
+        '<div class="ap-xl">' + [0, 6, 12, 18, 23].map(function (hh) { return '<span style="left:' + (hh / 23 * 100).toFixed(1) + '%">' + (hh === 23 ? "24" : hh) + '시</span>'; }).join("") + '</div><div class="ap-lg"><i class="t"></i>오늘 누적 <i class="p"></i>예상 <i class="y"></i>어제</div>';
     }
     var b12 = el('[data-k="chart12"]'); if (b12) {
       var ms = monthRows().slice(-12), mmax = Math.max.apply(null, ms.map(function (m) { return m.rev; })) || 1, bw2 = (W - 8 * 11) / 12;
       b12.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + ms.map(function (m, i) {
         var hh = Math.max(2, m.rev / mmax * (H - 6)); return '<rect x="' + (i * (bw2 + 8)).toFixed(1) + '" y="' + (H - hh).toFixed(1) + '" width="' + bw2.toFixed(1) + '" height="' + hh.toFixed(1) + '" rx="3" class="' + (i === ms.length - 1 ? "today" : "") + '"/>';
-      }).join("") + '</svg><div class="ap-xl">' + ms.map(function (m) { return '<span>' + parseInt(m.month.slice(5), 10) + '월</span>'; }).join("") + '</div>';
+      }).join("") + '</svg><div class="ap-xl months">' + ms.map(function (m) { return '<span>' + parseInt(m.month.slice(5), 10) + '월</span>'; }).join("") + '</div>';
       setText("c12", "올해 " + wonShort(k.ytd.rev) + " · 연 목표 ₩80억");
     }
   }
