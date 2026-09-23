@@ -158,6 +158,23 @@
   .stat .v{font-size:var(--fs-title2); font-weight:var(--w-bold); font-variant-numeric:tabular-nums}
   .stat.accent .v{color:var(--brand)}
   .stat.money .v{color:var(--ok)}
+  .stat.go,.okpi.go,tr.go{cursor:pointer}
+  .stat.go:hover,.okpi.go:hover{border-color:var(--brand-line); box-shadow:0 2px 10px rgba(0,0,0,.06)}
+  tr.go:hover td{background:var(--brand-bg)}
+  /* ---- 대시보드: 오늘 할 일 ---- */
+  .todo-panel{background:var(--card); border:1px solid var(--line-soft); border-radius:var(--r-md); padding:12px 14px; box-shadow:var(--shadow); margin-bottom:16px}
+  .todo-head{display:flex; align-items:baseline; gap:10px; margin-bottom:10px}
+  .todo-head b{font-size:var(--fs-body); font-weight:var(--w-semi)} .todo-head span{font-size:var(--fs-caption); color:var(--muted)}
+  .todo-list{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px}
+  .todo-item{display:flex; align-items:center; gap:10px; text-align:left; padding:9px 11px; border:1px solid var(--line-soft); border-radius:var(--r-sm); background:var(--fill); font:inherit; cursor:pointer; color:var(--ink)}
+  .todo-item b{min-width:34px; font-size:var(--fs-title3); font-weight:var(--w-bold); font-variant-numeric:tabular-nums; text-align:center; border-radius:var(--r-pill); padding:2px 8px; background:#fff; border:1px solid var(--line-soft)}
+  .todo-item span{font-size:var(--fs-footnote); line-height:1.3}
+  .todo-item:hover{border-color:var(--brand-line); background:#fff}
+  .todo-item.zero{opacity:.55} .todo-item.zero b{color:var(--muted)}
+  .todo-item.brand:not(.zero) b{color:var(--brand); border-color:var(--brand-line); background:var(--brand-bg)}
+  .todo-item.warn:not(.zero) b{color:var(--warn); border-color:var(--warn-line); background:var(--warn-bg)}
+  .todo-item.danger:not(.zero) b{color:var(--bad); border-color:rgba(255,59,48,.35); background:rgba(255,59,48,.08)}
+  .monthly-head{display:flex; align-items:center; justify-content:space-between; gap:10px}
 
   /* ---- 툴바 ---- */
   .toolbar{

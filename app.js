@@ -929,14 +929,109 @@
     });
     var s = $("#summary");
     s.innerHTML =
-      stat("총 주문", total + "건") +
-      stat("미처리", pending + "건", "accent") +
-      stat("구매완료", purchased + "건") +
-      stat("송장완료", invoiced + "건") +
-      stat("예상마진 합계", hasMargin ? won(marginSum) : "매입가 입력 필요", "money");
+      stat("총 주문", total + "건", "", "orders:all") +
+      stat("미처리", pending + "건", "accent", "orders:pending") +
+      stat("구매완료", purchased + "건", "", "orders:purchased") +
+      stat("송장완료", invoiced + "건", "", "orders:invoiced") +
+      stat("예상마진 합계", hasMargin ? won(marginSum) : "매입가 입력 필요", "money", hasMargin ? "profit" : "lineup");
   }
-  function stat(k, v, cls) {
-    return '<div class="stat ' + (cls || "") + '"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>';
+  // go 가 있으면 카드를 누를 때 해당 화면으로 바로 이동(data-dash-go)
+  function stat(k, v, cls, go) {
+    return '<div class="stat ' + (cls || "") + (go ? " go" : "") + '"' + (go ? ' data-dash-go="' + esc(go) + '" role="button" tabindex="0"' : "") + '><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>';
+  }
+  // 대시보드 카드/할 일에서 한 번에 이동: "orders:pending" 같은 키
+  function dashGo(key) {
+    var parts = String(key || "").split(":"), where = parts[0], arg = parts[1] || "";
+    if (where === "risk") { showRiskModal(); return; }
+    if (where === "orders") {
+      state.ui.q = "";
+      state.ui.status = ["pending", "purchased", "invoiced"].indexOf(arg) !== -1 ? arg : "all";
+      if (arg === "cs") state.ui.showCs = true;
+      setTab("orders"); return;
+    }
+    if (where === "cs" && arg === "todo") { state.ui.csShowDone = false; }
+    setTab(where || "dashboard");
+  }
+  // 기간별 집계(주문일 기준): 오늘 · 어제 · 이번 달 · 지난 달 · 전체
+  function periodStats() {
+    var now = new Date();
+    var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    var thisM = monthKey(now), lastM = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    function mk(label, test, go) { return { label:label, test:test, go:go, cnt:0, rev:0, margin:0, hasMargin:false, cs:0 }; }
+    var rows = [
+      mk("오늘", function (d) { return isSameDay(d, now); }, "daily"),
+      mk("어제", function (d) { return isSameDay(d, y); }, "daily"),
+      mk("이번 달", function (d) { return d && monthKey(d) === thisM; }, "profit"),
+      mk("지난 달", function (d) { return d && monthKey(d) === lastM; }, "profit"),
+      mk("전체", function () { return true; }, "orders:all")
+    ];
+    state.orders.forEach(function (o) {
+      var d = parseOrderDate(o.orderDate);
+      rows.forEach(function (r) {
+        if (!r.test(d)) return;
+        r.cnt++; r.rev += o.paymentAmount || 0;
+        if (o.csType) r.cs++;
+        if (o.margin != null) { r.margin += o.margin; r.hasMargin = true; }
+      });
+    });
+    rows.forEach(function (r) { r.rate = r.rev && r.hasMargin ? Math.round(r.margin / r.rev * 1000) / 10 : null; });
+    return rows;
+  }
+  // 오늘 처리할 일 — 숫자를 누르면 그 화면으로
+  function todoItems() {
+    var t = todayKey();
+    var pending = 0, noInvoice = 0, noCost = 0, csMe = 0, csDue = 0, csWait = 0;
+    state.orders.forEach(function (o) {
+      normalizeOrder(o);
+      var cs = isCsOrder(o);
+      if (!cs && o.status === "pending") pending++;
+      if (!cs && o.status === "purchased" && !(o.invoiceNumber && o.courier)) noInvoice++;
+      if (!cs && o.status === "pending" && o.sourcingPrice == null && o.purchaseAmount == null) noCost++;
+      if (cs && !csIsClosed(o)) {
+        var b = csBucket(o);
+        if (b === "todo") csMe++; else if (b === "waiting") csWait++;
+        if (o.cs.nextActionAt && o.cs.nextActionAt <= t) csDue++;
+      }
+    });
+    var risk = riskOrders().length;
+    return [
+      { label:"블랙리스트 위험 — 발송 전 확인", n:risk, go:"risk", cls:"danger" },
+      { label:"미처리 주문 — 구매처에서 결제", n:pending, go:"orders:pending", cls:"brand" },
+      { label:"결제 완료, 송장 미입력", n:noInvoice, go:"invoice", cls:"warn" },
+      { label:"매입가 미입력 (마진 계산 불가)", n:noCost, go:"lineup", cls:"" },
+      { label:"CS 내 차례", n:csMe, go:"cs:todo", cls:"warn" },
+      { label:"CS 조치 기한 오늘·지남", n:csDue, go:"cs:todo", cls:"danger" },
+      { label:"CS 기다리는 중 (고객·구매처·택배)", n:csWait, go:"cs", cls:"" }
+    ];
+  }
+  function renderTodoPanel() {
+    var items = todoItems();
+    var open = items.filter(function (i) { return i.n > 0; });
+    return '<div class="todo-panel"><div class="todo-head"><b>오늘 할 일</b><span>' + (open.length ? "숫자를 누르면 바로 그 화면으로 이동합니다" : "밀린 일이 없습니다") + '</span></div>' +
+      '<div class="todo-list">' + items.map(function (i) {
+        return '<button class="todo-item ' + esc(i.cls || "") + (i.n ? "" : " zero") + '" type="button" data-dash-go="' + esc(i.go) + '"><b>' + i.n + '</b><span>' + esc(i.label) + '</span></button>';
+      }).join("") + '</div></div>';
+  }
+  function renderPeriodTable() {
+    var rows = periodStats();
+    if (!state.orders.length) return "";
+    var body = rows.map(function (r) {
+      return '<tr class="go" data-dash-go="' + esc(r.go) + '"><td>' + esc(r.label) + '</td><td class="num">' + r.cnt + '건</td><td class="num">' + won(r.rev) + '</td>' +
+        '<td class="num ' + (r.hasMargin ? (r.margin >= 0 ? "pos" : "neg") : "") + '">' + (r.hasMargin ? won(r.margin) : "—") + '</td>' +
+        '<td class="num">' + (r.rate == null ? "—" : fmtPct(r.rate)) + '</td><td class="num">' + (r.cs ? r.cs + "건" : "—") + '</td></tr>';
+    }).join("");
+    return '<div class="panel-head monthly-head"><h2>기간별 매출·순마진</h2><span class="muted-note">주문일 기준 · 순마진은 매입가가 입력된 주문만</span></div>' +
+      '<div class="data-scroll monthly-scroll"><table class="data period"><thead><tr><th>기간</th><th class="num">건수</th><th class="num">매출</th><th class="num">순마진</th><th class="num">마진율</th><th class="num">CS</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+  function renderRecentDailyTable() {
+    var rows = dailySalesRows().filter(function (r) { return r.date !== "날짜없음"; }).slice(-14).reverse();
+    if (!rows.length) return "";
+    var body = rows.map(function (g) {
+      var rate = g.rev && g.hasM ? g.margin / g.rev * 100 : null;
+      return '<tr><td>' + esc(g.date) + '</td><td class="num">' + g.cnt + '</td><td class="num">' + won(g.rev) + '</td><td class="num ' + (g.hasM ? (g.margin >= 0 ? "pos" : "neg") : "") + '">' + (g.hasM ? won(g.margin) : "—") + '</td><td class="num">' + fmtPct(rate) + '</td></tr>';
+    }).join("");
+    return '<div class="panel-head monthly-head"><h2>최근 14일</h2><button class="btn sm" type="button" data-dash-go="daily">일별매출 전체 보기</button></div>' +
+      '<div class="data-scroll monthly-scroll"><table class="data"><thead><tr><th>날짜</th><th class="num">건수</th><th class="num">매출</th><th class="num">순마진</th><th class="num">마진율</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
   function renderProcessStrip() {
@@ -1253,8 +1348,8 @@
   function isSameDay(a, b) {
     return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   }
-  function orderKpi(k, v, cls) {
-    return '<div class="okpi"><div class="k">' + esc(k) + '</div><div class="v ' + (cls || "") + '">' + esc(v) + '</div></div>';
+  function orderKpi(k, v, cls, go) {
+    return '<div class="okpi' + (go ? " go" : "") + '"' + (go ? ' data-dash-go="' + esc(go) + '" role="button" tabindex="0"' : "") + '><div class="k">' + esc(k) + '</div><div class="v ' + (cls || "") + '">' + esc(v) + '</div></div>';
   }
   function renderOrdersDashboard() {
     var el = $("#orders-dashboard"); if (!el) return;
@@ -1280,10 +1375,10 @@
       orderKpi("오늘의 매출", won(s.rev)) +
       orderKpi("오늘의 순마진", s.hasMargin ? won(s.margin) : "—", s.hasMargin ? (s.margin >= 0 ? "pos" : "neg") : "") +
       orderKpi("오늘의 마진율", fmtPct(rate)) +
-      orderKpi("남은 총 주문건", s.remaining + "건") +
-      orderKpi("완료된 주문건", s.completed + "건") +
-      orderKpi("CS 건", s.cs + "건") +
-      orderKpi("블랙리스트 위험", riskN + "건", riskN ? "neg" : "") +
+      orderKpi("남은 총 주문건", s.remaining + "건", "", "orders:pending") +
+      orderKpi("완료된 주문건", s.completed + "건", "", "orders:purchased") +
+      orderKpi("CS 건", s.cs + "건", "", "cs") +
+      orderKpi("블랙리스트 위험", riskN + "건", riskN ? "neg" : "", riskN ? "risk" : "blacklist") +
     '</div>';
   }
 
@@ -1480,6 +1575,8 @@
     var done = s.invoiced, prog = s.total ? Math.round(done / s.total * 100) : 0;
     var box = $("#overview-extra"); if (!box) return;
     box.innerHTML =
+      renderTodoPanel() +
+      renderPeriodTable() +
       '<div class="ov-grid">' +
         ovCard("총 매출 (결제액 합)", won(s.rev)) +
         ovCard("정산 예상액", won(s.settle)) +
@@ -1492,7 +1589,8 @@
       '</div>' +
       '<div class="ov-prog"><div class="ov-prog-lbl">처리 진행률 (송장입력완료 기준) — <b>' + prog + '%</b> · ' + done + "/" + s.total + '건</div>' +
         '<div class="ov-bar"><span style="width:' + prog + '%"></span></div></div>' +
-      renderMonthlyTable();
+      renderMonthlyTable() +
+      renderRecentDailyTable();
   }
   function renderMonthlyTable() {
     var rows = monthlyStats();
@@ -4475,7 +4573,14 @@
     var blPane = $("#pane-blacklist");
     if (blPane) { blPane.addEventListener("click", onBlacklistClick); blPane.addEventListener("input", onBlacklistInput); }
     document.addEventListener("click", function (e) {
-      if (e.target.closest("[data-risk-list]")) showRiskModal();
+      if (e.target.closest("[data-risk-list]")) { showRiskModal(); return; }
+      var g = e.target.closest("[data-dash-go]");
+      if (g) dashGo(g.getAttribute("data-dash-go"));
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      var g = e.target && e.target.closest && e.target.closest("[data-dash-go][role=button]");
+      if (g) { e.preventDefault(); dashGo(g.getAttribute("data-dash-go")); }
     });
     var memoList = $("#memo-list");
     if (memoList) memoList.addEventListener("click", function (e) {
