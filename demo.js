@@ -62,7 +62,7 @@
   }
   var HOUR_W = normalizeTo(DD.hours, 24);
   var WDAY_W = normalizeTo(DD.weekdays, 7);       // 0=월 … 6=일 (python weekday)
-  var NOISE = (DD.noise && DD.noise.length) ? DD.noise : [1];
+  var NOISE = ((DD.noise && DD.noise.length) ? DD.noise : [1]).map(function (v) { return Math.max(0.72, Math.min(1.32, v)); });
   var REGIONS = (DD.regions && DD.regions.length) ? DD.regions : [["경기도 용인시", 10], ["서울특별시 강남구", 8], ["부산광역시 해운대구", 5]];
   var COURIERS = (DD.couriers && DD.couriers.length) ? DD.couriers : [["CJ대한통운", 6], ["롯데택배", 3], ["한진택배", 1]];
   var SEASON = { 1:1.15, 2:1.10, 3:0.95, 4:0.90, 5:0.90, 6:0.92, 7:0.95, 8:0.98, 9:1.0, 10:0.97, 11:0.98, 12:1.05 };
@@ -118,8 +118,8 @@
       d = new Date(todayD.getTime() - i * DAY);
       raw.push({ d:d, base:level(d, todayD) * NOISE[(i * 7) % NOISE.length] });
     }
-    var last30 = raw.slice(-30).reduce(function (s, r) { return s + r.base; }, 0);
-    var scale = DAY_TARGET * 30 / last30;                        // 최근 30일 평균 = 80억/365
+    var last28 = raw.slice(-28).reduce(function (s, r) { return s + r.base; }, 0);
+    var scale = DAY_TARGET * 28 / last28;                        // 최근 4주(요일 균형) 평균 = 80억/365 → 페이스 정확히 80억
     D.days = {};
     raw.forEach(function (r) {
       k = dayKeyOf(r.d);
@@ -353,6 +353,7 @@
     var yBase = yd ? yd.rev / (DAY_TARGET * WDAY_W[wdayIdx(new Date(tms - DAY))]) : 1;
     D.todayNoise = Math.max(0.85, Math.min(1.15, yBase)) * (0.99 + rnd() * 0.08);
     D.stages = { collected:0, checked:0, held:0, ordered:0, invoiced:0, shipped:0, delivered:0 };
+    if (D.cs) { D.cs.opened = 0; D.cs.closed = 0; D.cs.auto = 0; D.cs.human = 0; }
   }
   // 시작 시 오늘 이미 지난 시간만큼 채우기(주문 객체는 최근 것만 만들고 나머지는 집계로)
   function prefillToday(tms) {
@@ -438,8 +439,9 @@
     var mk = monthKeyOf(t), lm = monthKeyOf(new Date(t.getFullYear(), t.getMonth() - 1, 1));
     var y = t.getFullYear() + "-01-01";
     var month = sumRange(mk + "-01", tk), lastMonth = sumRange(lm + "-01", lm + "-31"), ytd = sumRange(y, tk);
-    var last30 = sumRange(dayKeyOf(new Date(t.getTime() - 30 * DAY)), yk);
-    var pace = Math.round(last30.rev / 30 * 365);
+    // 연매출 페이스 = 최근 4주(요일 균형) 실적의 하루 평균 × 365. 자정마다 4주 전 같은 요일과 교체되므로 요일 효과 없이 완만하게 움직임
+    var last28 = sumRange(dayKeyOf(new Date(t.getTime() - 28 * DAY)), yk);
+    var pace = Math.round(last28.rev / 28 * 365);
     var processed = D.stages.ordered + D.stages.invoiced + D.stages.shipped;
     var d0 = new Date(t.getFullYear(), t.getMonth(), t.getDate());
     var expDay = Math.round(ORDERS_PER_DAY * WDAY_W[wdayIdx(t)] * (D.todayNoise || 1) * AOV);
@@ -548,9 +550,11 @@
       var m = o._d, st = m.stage;
       if (m.cs && !m.cs.done) continue;                    // 진행 중 CS 는 남김
       if (st === "delivered" || st === "cancelled") { orders.splice(i, 1); continue; }
-      if (st === "invoiced" || st === "shipped") {
-        if (st === "invoiced") { D.deferred.push({ at:m.next, kind:"shipped" }); D.deferred.push({ at:m.next + ri(18, 30) * HOUR, kind:"delivered" }); }
-        else D.deferred.push({ at:m.next, kind:"delivered" });
+      if (st === "ordered" || st === "invoiced" || st === "shipped") {
+        var inv = st === "ordered" ? m.next : 0, shp = st === "ordered" ? inv + ri(30, 90) * MIN : (st === "invoiced" ? m.next : 0), dlv = (shp || m.next) + ri(18, 30) * HOUR;
+        if (inv) D.deferred.push({ at:inv, kind:"invoiced" });
+        if (shp) D.deferred.push({ at:shp, kind:"shipped" });
+        D.deferred.push({ at:dlv, kind:"delivered" });
         orders.splice(i, 1);
       }
     }
@@ -691,7 +695,7 @@
         return (i ? '<div class="ap-flow"><i></i><i></i><i></i></div>' : "") +
           '<button type="button" class="ap-stage" data-ap-go="' + x[2] + '"><span class="ic">' + x[4] + '</span><span class="n" data-k="st' + i + '">' + OH.comma(x[1]) + '</span><span class="l">' + x[0] + '</span><span class="sl">' + x[3] + '</span></button>';
       }).join("") + '</div>' +
-      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건 · 담당자 확인</span><span class="sp"></span><span>흐름 중 <b data-k="pfFlow">0</b>건</span></div>';
+      '<div class="ap-pipe-foot"><span>구매처 <b>' + k.vendors + '</b>곳 자동 발주</span><span>송장 자동 업로드 <b data-k="pfInv">0</b>건</span><span>평균 리드타임 <b>' + k.leadTime + '</b>일</span><span class="note">송장·발송·배송완료는 전일 주문 포함</span><span class="ap-held" data-k="pfHeld"><i></i>블랙리스트 일치 → 자동 보류 <b>0</b>건 · 담당자 확인</span><span class="sp"></span><span>흐름 중 <b data-k="pfFlow">0</b>건</span></div>';
     }
     steps.forEach(function (x, i) { setText("st" + i, OH.comma(x[1])); });
     setText("pfInv", OH.comma(s.invoiced)); setText("pfFlow", OH.comma(Math.max(0, s.collected - s.shipped)));
